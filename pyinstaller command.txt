@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --windowed --uac-admin --onefile --icon "icon.png" --name "E-710 Launcher" --clean --add-data "icon.png;." --exclude-module "cryptography" --exclude-module "numpy" --exclude-module "multiprocessing" --exclude-module "wheel" --version-file=version.txt run.py
