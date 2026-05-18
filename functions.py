@@ -16,8 +16,6 @@ except ImportError:
 
 CONFIG_FILE = os.path.join(os.getcwd(), 'data', 'launcher_config.json')
 
-waittime = 60
-
 def load_config():
     try:
         if os.path.isfile(CONFIG_FILE):
@@ -135,7 +133,6 @@ def find_steam_exe():
             return candidate
         candidate = os.path.join(install_path, "steam")
         if os.path.isfile(candidate):
-            print("Linux!", candidate)
             return candidate
 
     if winreg is not None:
@@ -178,7 +175,6 @@ def find_steam_exe():
 # Locate the Steam install directory itself (not steam.exe).
 def find_steam_install_path():
     if platform == "linux" or platform == "linux2":
-        print("Linux!", "/usr/bin")
         return "/usr/bin/"
     if winreg is not None:
         reg_locations = [
@@ -229,14 +225,11 @@ def get_steam_library_folders():
     libraries.append(steam_path)
 
     if platform == "linux" or platform == "linux2":
-        print("Linux!", steam_path, "doesn't contain libraryfolders.vdf")
         steam_path = os.path.join(os.getenv("HOME"),".local","share","Steam")
 
     vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
     if not os.path.isfile(vdf_path):
         return libraries
-
-    print(vdf_path)
 
     try:
         with open(vdf_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -245,7 +238,6 @@ def get_steam_library_folders():
         for match in re.finditer(r'"path"\s+"([^"]+)"', contents):
             raw = match.group(1).replace("\\\\", "\\")
             normalized = os.path.normpath(raw)
-            print(normalized)
             if os.path.isdir(normalized) and normalized.lower() not in (p.lower() for p in libraries):
                 libraries.append(normalized)
     except Exception as e:
@@ -750,8 +742,8 @@ def launch_and_restore():
         move_files_back_to_data(moved_files)
         return
 
-    print("Waiting", waittime, "seconds for game initialization...")
-    time.sleep(waittime)
+    print("Waiting 45 seconds for game initialization...")
+    time.sleep(45)
 
     move_files_back_to_data(moved_files)
     print("Successfully launched game and moved files back.")
