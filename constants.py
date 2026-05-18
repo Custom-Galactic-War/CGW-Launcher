@@ -1,6 +1,11 @@
 import os
 from PyQt6.QtGui import QFontDatabase
 
+# Launcher version — must match the FileVersion tuple in version.txt
+# (currently filevers=(1, 0, 8, 0) at version.txt:5). Bumping requires
+# updating both this constant and version.txt together.
+LAUNCHER_VERSION = "1.0.8"
+
 # File paths
 ASSET_DIR = os.path.join("data", "assets")
 MECH_ASSET_DIR = os.path.join(ASSET_DIR, "exosuit")

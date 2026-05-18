@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 from PyQt6.QtWidgets import (
@@ -10,6 +11,8 @@ from PyQt6.QtMultimedia import QSoundEffect
 import constants
 import functions
 from button_cta import InteractiveCTA
+
+log = logging.getLogger(__name__)
 
 
 # Added some comments to make this a bit less of a fucking mess
@@ -81,6 +84,7 @@ def read_json_safely(filepath, default_return):
         with open(filepath, 'r') as f:
             return json.load(f)
     except Exception:
+        log.exception("Failed to read JSON: %r", filepath)
         return default_return
 
 
@@ -362,8 +366,8 @@ class MechEditorWidget(QWidget):
             cfg = functions.load_config()
             cfg["active_chassis"] = self.active_chassis
             functions.save_config(cfg)
-        except Exception as e:
-            print(f"Failed to persist active chassis: {e}")
+        except Exception:
+            log.exception("Failed to persist active chassis")
 
         self.refresh_schematic()
 
@@ -371,6 +375,6 @@ class MechEditorWidget(QWidget):
         try:
             self._capture_current()
             save_all_loadouts(self.loadouts)
-            print("Exosuit Edit Successful")
-        except Exception as e:
-            print(f"Exosuit Edit Failed: {e}")
+            log.info("Exosuit edit successful")
+        except Exception:
+            log.exception("Exosuit Edit Failed")

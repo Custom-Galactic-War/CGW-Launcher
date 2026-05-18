@@ -1,3 +1,4 @@
+import logging
 import sys
 import os
 import time
@@ -13,6 +14,8 @@ from button_cta import InteractiveCTA
 from mech_editor import MechEditorWidget
 from custom_widgets import LinkButtonWidget, LauncherProgressBar, IconButton, InstructionsOverlay
 from discord_rpc import DiscordRPCManager
+
+log = logging.getLogger(__name__)
 
 class InjectionThread(QThread):
     progress_update = pyqtSignal(float, str)
@@ -134,8 +137,46 @@ class CustomGalacticWarLauncher(QMainWindow):
         self.info_button.raise_()
         self.info_button.clicked.connect(self.show_instructions)
 
+        # "Open Log File" button — Notepad, not Explorer (the launcher runs
+        # --uac-admin; spawning Explorer from an elevated process is a
+        # documented UAC escalation surface).
+        log_icon_path = os.path.join(constants.ASSET_DIR, "log.png")
+        self.log_button = IconButton(
+            icon_path=log_icon_path,
+            fallback_letter="L",
+            tooltip="Open diagnostic log",
+            size=35,
+            parent=self.central_widget,
+        )
+        self.log_button.move(10, 95)
+        self.log_button.raise_()
+        self.log_button.clicked.connect(self._open_log_file)
+
         # Auto-show instructions the first time the launcher is opened.
         QTimer.singleShot(0, self.maybe_auto_show_instructions)
+
+    def _open_log_file(self):
+        import subprocess
+        try:
+            from logger import get_log_file_path, is_initialized
+            log_path = get_log_file_path() if is_initialized() else None
+        except Exception:
+            log_path = None
+
+        if not log_path or not os.path.isfile(log_path):
+            QMessageBox.information(
+                self,
+                "Log Not Available",
+                "The diagnostic log has not been created yet, or the launcher "
+                "failed to initialize logging. Check %TEMP%\\e710-launcher-boot.log "
+                "for clues if this is unexpected."
+            )
+            return
+
+        try:
+            subprocess.Popen(["notepad.exe", log_path])
+        except Exception:
+            log.exception("Failed to open log in Notepad")
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -160,6 +201,7 @@ class CustomGalacticWarLauncher(QMainWindow):
                     with open(path, "r", encoding="utf-8", errors="replace") as f:
                         return f.read()
                 except Exception as e:
+                    log.exception("Failed to open instructions file: %r", path)
                     return (
                         f"# Could not read instructions\n\n"
                         f"Failed to open {path}:\n\n{e}"
@@ -304,10 +346,29 @@ class CustomGalacticWarLauncher(QMainWindow):
             self.rpc_manager.stop()
             self.rpc_manager.wait()
         functions.ensure_required_files_in_data()
-        self.rpc_manager.stop()
+        logging.getLogger("e710").info("Session end (close).")
         super().closeEvent(event)
 
 if __name__ == "__main__":
+    try:
+        from logger import setup_logging
+        setup_logging()
+    except Exception:
+        # Logging is best-effort, BUT a silent failure here is exactly the
+        # bug class we're trying to fix. Drop a one-line breadcrumb in TEMP
+        # so future-us can find out logging never started.
+        try:
+            import tempfile
+            import traceback as _tb
+            breadcrumb = os.path.join(
+                tempfile.gettempdir(), "e710-launcher-boot.log"
+            )
+            with open(breadcrumb, "a", encoding="utf-8") as f:
+                f.write(f"\n--- setup_logging failed at {time.time()} ---\n")
+                _tb.print_exc(file=f)
+        except Exception:
+            pass  # truly nothing we can do
+
     app = QApplication(sys.argv)
     app_icon = QtGui.QIcon()
     app_icon.addFile('data/assets/icon.png', QSize(256, 256))

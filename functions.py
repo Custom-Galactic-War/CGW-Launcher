@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import shutil
@@ -13,6 +14,8 @@ try:
 except ImportError:
     winreg = None
 
+log = logging.getLogger(__name__)
+
 CONFIG_FILE = os.path.join(os.getcwd(), 'data', 'launcher_config.json')
 
 def load_config():
@@ -20,8 +23,8 @@ def load_config():
         if os.path.isfile(CONFIG_FILE):
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    except Exception as e:
-        print(f"Failed to load launcher config: {e}")
+    except Exception:
+        log.exception("Failed to load launcher config")
     return {}
 
 
@@ -31,8 +34,8 @@ def save_config(cfg):
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(cfg, f, indent=4)
         return True
-    except Exception as e:
-        print(f"Failed to save launcher config: {e}")
+    except Exception:
+        log.exception("Failed to save launcher config")
         return False
 
 
@@ -89,20 +92,39 @@ def error_count_since_reset():
 
 
 # Show a modal error dialog. Falls back to console output if Tk is unavailable.
-# Every call increments the error counter so the launcher knows an error was
-# surfaced to the user during the current operation.
+# Increments the error counter ONLY after the dialog is successfully shown,
+# so a logging or Tk failure can never bump the counter without the user
+# seeing the dialog (InjectionThread in run.py relies on this invariant).
 def show_error_box(title, message):
     global _error_count
-    _error_count += 1
-    print(f"[{title}] {message}")
+
+    try:
+        log.error("[%s] %s", title, message)
+    except Exception:
+        pass
+
+    try:
+        from logger import get_log_dir
+        log_dir = get_log_dir()
+    except Exception:
+        log_dir = None
+
+    full_message = message
+    if log_dir:
+        full_message = f"{message}\n\nDiagnostic logs folder:\n{log_dir}"
+
     try:
         root = tk.Tk()
         root.withdraw()
         root.attributes('-topmost', True)
-        messagebox.showerror(title, message, parent=root)
+        messagebox.showerror(title, full_message, parent=root)
         root.destroy()
-    except Exception as e:
-        print(f"(Could not display message box: {e})")
+        _error_count += 1
+    except Exception:
+        try:
+            log.exception("Could not display message box")
+        except Exception:
+            pass
 
 
 # Standardized warning for the "files missing from BOTH locations" scenario.
@@ -231,8 +253,8 @@ def get_steam_library_folders():
             normalized = os.path.normpath(raw)
             if os.path.isdir(normalized) and normalized.lower() not in (p.lower() for p in libraries):
                 libraries.append(normalized)
-    except Exception as e:
-        print(f"Failed to parse libraryfolders.vdf: {e}")
+    except Exception:
+        log.exception("Failed to parse libraryfolders.vdf at %r", vdf_path)
 
     return libraries
 
@@ -243,10 +265,10 @@ def modify_mounts_json(left_path, right_path):
     json_file = os.path.join(os.getcwd(), 'data', 'mounts.json')
 
     if not os.path.exists(json_file):
-        print(f"Warning: Could not find {json_file}. Skipping JSON modification.")
+        log.warning("Could not find %r. Skipping JSON modification.", json_file)
         return False
 
-    print(f"Updating {json_file}...")
+    log.info("Updating %r...", json_file)
     try:
         # Read the current data
         with open(json_file, 'r') as file:
@@ -263,17 +285,17 @@ def modify_mounts_json(left_path, right_path):
             with open(json_file, 'w') as file:
                 json.dump(data, file, indent=4)
 
-            print(" -> mounts.json updated successfully.")
+            log.info(" -> mounts.json updated successfully.")
             return True
         else:
-            print(f" -> Error: '{target_mech}' not found in JSON, or array is missing items.")
+            log.error(" -> '%s' not found in JSON, or array is missing items.", target_mech)
             return False
 
-    except json.JSONDecodeError as e:
-        print(f" -> JSON Formatting Error (Check for trailing commas!): {e}")
+    except json.JSONDecodeError:
+        log.exception("JSON formatting error in %r (check for trailing commas)", json_file)
         return False
-    except Exception as e:
-        print(f" -> Error modifying mounts.json: {e}")
+    except Exception:
+        log.exception("Error modifying mounts.json at %r", json_file)
         return False
 
 # Auto-detection of the Helldivers 2 bin directory (no manual override).
@@ -339,12 +361,11 @@ HELLDIVERS_EXE_FILENAME = "helldivers2.exe"
 # and persisted via set_saved_bin_dir so the next CONNECT click uses it.
 def prompt_for_new_game_folder(bin_dir, missing_files):
     global _error_count
-    _error_count += 1
 
     files_list = "\n  - ".join(missing_files)
     info_msg = (
         f"helldivers2.exe was not found in the Helldivers 2 'bin' folder:\n"
-        f"{bin_dir}\n\n"
+        f"{bin_dir!r}\n\n"
         f"Missing file(s):\n  - {files_list}\n\n"
         "The folder currently in use does not look like a valid Helldivers 2 "
         "install. Would you like to select the correct Helldivers 2 folder "
@@ -352,7 +373,7 @@ def prompt_for_new_game_folder(bin_dir, missing_files):
         "The launcher will reset to its starting state either way; the game "
         "will not be launched on this attempt."
     )
-    print(f"[Helldivers 2 Executable Missing] {info_msg}")
+    log.error("[Helldivers 2 Executable Missing] %s", info_msg)
 
     try:
         root = tk.Tk()
@@ -365,6 +386,10 @@ def prompt_for_new_game_folder(bin_dir, missing_files):
             parent=root,
             icon='warning',
         )
+        # Counter is incremented only after the dialog successfully appears,
+        # matching the invariant established by show_error_box. If Tk fails
+        # (headless / display unavailable) we fall through to the except.
+        _error_count += 1
 
         if not wants_to_reselect:
             root.destroy()
@@ -417,8 +442,8 @@ def prompt_for_new_game_folder(bin_dir, missing_files):
         root.destroy()
         return True
 
-    except Exception as e:
-        print(f"(Could not display folder picker: {e})")
+    except Exception:
+        log.exception("Could not display folder picker")
         return False
 
 
@@ -485,7 +510,7 @@ def move_files_to_helldivers():
         return []
 
     moved_files = []
-    print("Moving files to Helldivers 2...")
+    log.info("Moving files to Helldivers 2...")
 
     for filename in os.listdir(source_dir):
         source_path = os.path.join(source_dir, filename)
@@ -499,7 +524,7 @@ def move_files_to_helldivers():
             # Special conditional logic for dxgi.dll due to reshade
             if filename.lower() == "dxgi.dll":
                 if not os.path.exists(target_path):
-                    print(f" -> Skipped: {filename} (No existing dxgi.dll found in target directory)")
+                    log.debug(" -> Skipped: %r (no existing dxgi.dll in target dir)", filename)
                     continue
 
             try:
@@ -511,8 +536,9 @@ def move_files_to_helldivers():
                 if filename.lower() != "dxgi.dll":
                     moved_files.append(filename)
 
-                print(f" -> Injected: {filename}")
+                log.info(" -> Injected: %r", filename)
             except Exception as e:
+                log.exception("Failed to move %r to %r", filename, target_dir)
                 show_error_box(
                     "Failed to Move File to Helldivers 2",
                     f"Could not move '{filename}' to:\n{target_dir}\n\n"
@@ -559,12 +585,12 @@ def ensure_required_files_in_data():
         if os.path.exists(source_path):
             try:
                 shutil.move(source_path, target_path)
-                print(f" -> Recovered: {filename}")
+                log.info(" -> Recovered: %r", filename)
             except Exception as e:
-                print(f" -> Error recovering '{filename}': {e}")
+                log.exception("Error recovering %r", filename)
                 failed_recoveries.append((filename, str(e)))
         else:
-            print(f" -> Missing in bin folder too: {filename}")
+            log.warning(" -> Missing in bin folder too: %r", filename)
             truly_missing.append(filename)
 
     if truly_missing:
@@ -596,7 +622,7 @@ def move_files_back_to_data(files_to_retrieve):
         )
         return
 
-    print("\nReturning files to local data folder...")
+    log.info("Returning files to local data folder...")
     moved_count = 0
     missing_files = []
     failed_moves = []
@@ -610,10 +636,10 @@ def move_files_back_to_data(files_to_retrieve):
                 if os.path.exists(target_path):
                     os.remove(target_path)
                 shutil.move(source_path, target_path)
-                print(f" -> Retrieved: {filename}")
+                log.info(" -> Retrieved: %r", filename)
                 moved_count += 1
             except Exception as e:
-                print(f" -> Error returning '{filename}': {e}")
+                log.exception("Error returning %r", filename)
                 failed_moves.append((filename, str(e)))
         elif not os.path.exists(target_path):
             # File is missing from BOTH the bin folder and the data folder.
@@ -633,14 +659,14 @@ def move_files_back_to_data(files_to_retrieve):
             "and ensuring the launcher is on the same drive as HD2."
         )
 
-    print(f"Successfully retrieved {moved_count}/{len(files_to_retrieve)} files.")
+    log.info("Successfully retrieved %d/%d files.", moved_count, len(files_to_retrieve))
 
 
 # Moves game files, launches the game, and returns files.
 # If any step shows an error message box, execution stops immediately and any
 # files that were already moved into the game's bin folder are restored.
 def launch_and_restore():
-    print("Starting CGW")
+    log.info("Starting CGW")
 
     errors_before_inject = error_count_since_reset()
 
@@ -653,7 +679,7 @@ def launch_and_restore():
         # An error box was shown. Roll back anything that did get moved and
         # do not proceed to launch the game.
         if moved_files:
-            print("Errors during injection. Restoring files to 'data'...")
+            log.warning("Errors during injection. Restoring files to 'data'...")
             move_files_back_to_data(moved_files)
         return
 
@@ -663,7 +689,7 @@ def launch_and_restore():
         for f in os.listdir(data_dir)
     ) if os.path.isdir(data_dir) else False
     if not moved_files and not has_dxgi_override:
-        print("No files were moved. Aborting sequence.")
+        log.warning("No files were moved. Aborting sequence.")
         return
 
     game_dir = get_helldivers_bin_dir()
@@ -678,7 +704,7 @@ def launch_and_restore():
         move_files_back_to_data(moved_files)
         return
 
-    print("\nLaunching helldivers2.exe...")
+    log.info("Launching helldivers2.exe...")
 
     steam_path = find_steam_exe()
     if not steam_path:
@@ -725,6 +751,7 @@ def launch_and_restore():
     try:
         subprocess.Popen([steam_path, "-applaunch", game_app_id], cwd=game_dir)
     except Exception as e:
+        log.exception("Failed to start Helldivers 2 via Steam")
         show_error_box(
             "Failed to Launch Helldivers 2",
             f"Could not start the game via Steam.\n\nError: {e}\n\n"
@@ -733,8 +760,8 @@ def launch_and_restore():
         move_files_back_to_data(moved_files)
         return
 
-    print("Waiting 45 seconds for game initialization...")
+    log.info("Waiting 45 seconds for game initialization...")
     time.sleep(45)
 
     move_files_back_to_data(moved_files)
-    print("Successfully launched game and moved files back.")
+    log.info("Successfully launched game and moved files back.")
