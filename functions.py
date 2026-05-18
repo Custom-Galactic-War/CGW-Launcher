@@ -228,6 +228,10 @@ def get_steam_library_folders():
 
     libraries.append(steam_path)
 
+    if platform == "linux" or platform == "linux2":
+        print("Linux!", steam_path, "doesn't contain libraryfolders.vdf")
+        steam_path = os.path.join(os.getenv("HOME"),".local","share","Steam")
+
     vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
     if not os.path.isfile(vdf_path):
         return libraries
