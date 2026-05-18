@@ -9,6 +9,10 @@ pip install -r requirements.txt
 then
 `python ./run.py`
 
-Unable to authenticate via discord so the CGW is unavailable as yet.
+Access to CGW is unavailable as it's unable to authenticate via discord. Possible solutions:
 
-Possible solution at https://github.com/ValveSoftware/Proton/wiki/Enabling-Discord-Rich-Presence ?
+https://github.com/ValveSoftware/Proton/wiki/Enabling-Discord-Rich-Presence last updated ~2023
+
+https://docs.discord.com/developers/developer-tools/game-sdk officially from discord?
+
+
