@@ -1,6 +1,9 @@
+import logging
 import time
 from pypresence import Presence
 from PyQt6.QtCore import QThread
+
+log = logging.getLogger(__name__)
 
 class DiscordRPCManager(QThread):
     def __init__(self, client_id):
@@ -25,8 +28,8 @@ class DiscordRPCManager(QThread):
                         break
                     time.sleep(1)
                     
-        except Exception as e:
-            print(f"[RPC] Discord connection failed: {e}")
+        except Exception:
+            log.exception("Discord RPC connection failed")
 
     def stop(self):
         self.is_running = False
@@ -34,4 +37,4 @@ class DiscordRPCManager(QThread):
             try:
                 self.rpc.close()
             except Exception:
-                pass
+                log.debug("rpc.close() raised on shutdown", exc_info=True)
