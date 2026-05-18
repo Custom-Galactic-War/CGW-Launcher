@@ -8,3 +8,7 @@ pip install -r requirements.txt
 ```
 then
 `python ./run.py`
+
+Unable to authenticate via discord so the CGW is unavailable as yet.
+
+Possible solution at https://github.com/ValveSoftware/Proton/wiki/Enabling-Discord-Rich-Presence ?
