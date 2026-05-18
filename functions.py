@@ -6,6 +6,7 @@ import subprocess
 import time
 import json
 import tkinter as tk
+from sys import platform
 from tkinter import messagebox, filedialog
 
 try:
@@ -14,6 +15,8 @@ except ImportError:
     winreg = None
 
 CONFIG_FILE = os.path.join(os.getcwd(), 'data', 'launcher_config.json')
+
+waittime = 60
 
 def load_config():
     try:
@@ -130,6 +133,10 @@ def find_steam_exe():
         candidate = os.path.join(install_path, "steam.exe")
         if os.path.isfile(candidate):
             return candidate
+        candidate = os.path.join(install_path, "steam")
+        if os.path.isfile(candidate):
+            print("Linux!", candidate)
+            return candidate
 
     if winreg is not None:
         try:
@@ -170,6 +177,9 @@ def find_steam_exe():
 
 # Locate the Steam install directory itself (not steam.exe).
 def find_steam_install_path():
+    if platform == "linux" or platform == "linux2":
+        print("Linux!", "/usr/bin")
+        return "/usr/bin/"
     if winreg is not None:
         reg_locations = [
             (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
@@ -222,6 +232,8 @@ def get_steam_library_folders():
     if not os.path.isfile(vdf_path):
         return libraries
 
+    print(vdf_path)
+
     try:
         with open(vdf_path, 'r', encoding='utf-8', errors='ignore') as f:
             contents = f.read()
@@ -229,6 +241,7 @@ def get_steam_library_folders():
         for match in re.finditer(r'"path"\s+"([^"]+)"', contents):
             raw = match.group(1).replace("\\\\", "\\")
             normalized = os.path.normpath(raw)
+            print(normalized)
             if os.path.isdir(normalized) and normalized.lower() not in (p.lower() for p in libraries):
                 libraries.append(normalized)
     except Exception as e:
@@ -733,8 +746,8 @@ def launch_and_restore():
         move_files_back_to_data(moved_files)
         return
 
-    print("Waiting 45 seconds for game initialization...")
-    time.sleep(45)
+    print("Waiting", waittime, "seconds for game initialization...")
+    time.sleep(waittime)
 
     move_files_back_to_data(moved_files)
     print("Successfully launched game and moved files back.")
