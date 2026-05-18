@@ -150,7 +150,7 @@ def find_steam_exe():
         if os.path.exists(drive):
             for subpath in fallback_paths:
                 potential_path = os.path.join(drive, subpath)
-                if os.path.isdir(potential_path):
+                if os.path.isfile(potential_path):
                     return potential_path
 
     for drive_letter in string.ascii_lowercase:
@@ -158,7 +158,7 @@ def find_steam_exe():
         if os.path.exists(drive):
             for subpath in fallback_paths:
                 potential_path = os.path.join(drive, subpath)
-                if os.path.isdir(potential_path):
+                if os.path.isfile(potential_path):
                     return potential_path
 
     found = shutil.which("steam.exe") or shutil.which("steam")
