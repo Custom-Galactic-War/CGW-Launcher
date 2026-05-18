@@ -1,0 +1,5 @@
+__pycache__/*
+*.pyc
+data/mounts.json
+data/launcher_config.json
+data/msvcp140.dll
