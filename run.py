@@ -300,6 +300,15 @@ class CustomGalacticWarLauncher(QMainWindow):
         self.refresh_game_folder_ui()
 
     def closeEvent(self, event):
+        # Wait for the injection thread to finish so move_files_back_to_data
+        # runs and nothing gets stranded in the game's bin/ folder. 50s
+        # ceiling covers the hard-coded 45s sleep in launch_and_restore
+        # plus a small buffer. Distributors should still warn users NOT to
+        # close the launcher mid-injection — this is a safety net, not a
+        # graceful cancel.
+        if hasattr(self, 'injection_thread') and self.injection_thread.isRunning():
+            self.injection_thread.wait(50000)  # Wait up to 50 seconds for the thread to finish
+
         if hasattr(self, 'rpc_manager'):
             self.rpc_manager.stop()
             self.rpc_manager.wait()
