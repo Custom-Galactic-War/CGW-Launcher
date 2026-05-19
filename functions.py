@@ -6,6 +6,7 @@ import subprocess
 import time
 import json
 import tkinter as tk
+from sys import platform
 from tkinter import messagebox, filedialog
 
 try:
@@ -130,6 +131,9 @@ def find_steam_exe():
         candidate = os.path.join(install_path, "steam.exe")
         if os.path.isfile(candidate):
             return candidate
+        candidate = os.path.join(install_path, "steam")
+        if os.path.isfile(candidate):
+            return candidate
 
     if winreg is not None:
         try:
@@ -170,6 +174,8 @@ def find_steam_exe():
 
 # Locate the Steam install directory itself (not steam.exe).
 def find_steam_install_path():
+    if platform == "linux" or platform == "linux2":
+        return "/usr/bin/"
     if winreg is not None:
         reg_locations = [
             (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
@@ -217,6 +223,9 @@ def get_steam_library_folders():
         return libraries
 
     libraries.append(steam_path)
+
+    if platform == "linux" or platform == "linux2":
+        steam_path = os.path.join(os.getenv("HOME"),".local","share","Steam")
 
     vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
     if not os.path.isfile(vdf_path):

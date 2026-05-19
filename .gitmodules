@@ -1,0 +1,3 @@
+[submodule "wine-discord-ipc-bridge"]
+	path = wine-discord-ipc-bridge
+	url = https://github.com/0e4ef622/wine-discord-ipc-bridge.git
