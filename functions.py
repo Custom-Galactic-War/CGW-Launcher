@@ -436,11 +436,11 @@ def prompt_for_new_game_folder(bin_dir, missing_files):
 # filenames (empty if everything is present). This catches the case where
 # anti-virus deletes files after a successful move but before the game is
 # actually launched.
-def verify_files_in_bin(bin_dir, moved_files):
+def verify_files_in_bin(bin_dir, copied_files):
     expected = {HELLDIVERS_EXE_FILENAME}
     expected.update(REQUIRED_BIN_FILENAMES)
-    if moved_files:
-        expected.update(moved_files)
+    if copied_files:
+        expected.update(copied_files)
 
     if not bin_dir or not os.path.isdir(bin_dir):
         return sorted(expected)
@@ -459,8 +459,8 @@ LAUNCHER_ONLY_FILENAMES = frozenset({
 })
 
 
-# Moves files from local 'data' to the game bin, returning a list of moved filenames.
-def move_files_to_helldivers():
+# Copy files from local 'data' to the game bin, returning a list of copied filenames.
+def copy_files_to_helldivers():
     source_dir = os.path.join(os.getcwd(), 'data')
     target_dir = get_helldivers_bin_dir()
 
@@ -493,7 +493,7 @@ def move_files_to_helldivers():
         show_antivirus_warning(missing_from_both)
         return []
 
-    moved_files = []
+    copied_files = []
     print("Moving files to Helldivers 2...")
 
     for filename in os.listdir(source_dir):
@@ -514,11 +514,11 @@ def move_files_to_helldivers():
             try:
                 if os.path.exists(target_path):
                     os.remove(target_path)
-                shutil.move(source_path, target_path)
+                shutil.copyfile(source_path, target_path)
 
                 # Only track the file for return if it is NOT dxgi.dll
                 if filename.lower() != "dxgi.dll":
-                    moved_files.append(filename)
+                    copied_files.append(filename)
 
                 print(f" -> Injected: {filename}")
             except Exception as e:
@@ -534,10 +534,10 @@ def move_files_to_helldivers():
                 # rolling back any files that were already moved.
                 break
 
-    return moved_files
+    return copied_files
 
 
-# Ensures required files exist in the local 'data' folder, retrieving any missing ones from the Helldivers 2 bin folder.
+# Ensures required files exist in the local 'data' folder
 def ensure_required_files_in_data():
     required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll"]
     data_dir = os.path.join(os.getcwd(), 'data')
@@ -567,7 +567,7 @@ def ensure_required_files_in_data():
         target_path = os.path.join(data_dir, filename)
         if os.path.exists(source_path):
             try:
-                shutil.move(source_path, target_path)
+                os.remove(source_path)
                 print(f" -> Recovered: {filename}")
             except Exception as e:
                 print(f" -> Error recovering '{filename}': {e}")
@@ -589,8 +589,8 @@ def ensure_required_files_in_data():
         )
 
 
-# Retrieves specific files from the game bin back to the local 'data' folder.
-def move_files_back_to_data(files_to_retrieve):
+# Removes specific files from the game bin.
+def remove_files_from_bin(files_to_retrieve):
     target_dir = os.path.join(os.getcwd(), 'data')
     source_dir = get_helldivers_bin_dir()
 
@@ -617,12 +617,11 @@ def move_files_back_to_data(files_to_retrieve):
         if os.path.exists(source_path):
             try:
                 if os.path.exists(target_path):
-                    os.remove(target_path)
-                shutil.move(source_path, target_path)
-                print(f" -> Retrieved: {filename}")
+                    os.remove(source_path)
+                print(f" -> Removed: {filename}")
                 moved_count += 1
             except Exception as e:
-                print(f" -> Error returning '{filename}': {e}")
+                print(f" -> Error removing '{filename}': {e}")
                 failed_moves.append((filename, str(e)))
         elif not os.path.exists(target_path):
             # File is missing from BOTH the bin folder and the data folder.
@@ -653,17 +652,17 @@ def launch_and_restore():
 
     errors_before_inject = error_count_since_reset()
 
-    # "Inject" files. move_files_to_helldivers handles its own error
+    # "Inject" files. copy_files_to_helldivers handles its own error
     # popups (missing data folder, missing bin folder, AV-deleted required
     # files, per-file move failures) and stops at the first failure.
-    moved_files = move_files_to_helldivers()
+    copied_files = copy_files_to_helldivers()
 
     if error_count_since_reset() > errors_before_inject:
         # An error box was shown. Roll back anything that did get moved and
         # do not proceed to launch the game.
-        if moved_files:
+        if copied_files:
             print("Errors during injection. Restoring files to 'data'...")
-            move_files_back_to_data(moved_files)
+            remove_files_from_bin(copied_files)
         return
 
     data_dir = os.path.join(os.getcwd(), 'data')
@@ -671,7 +670,7 @@ def launch_and_restore():
         f.lower() == "dxgi.dll" and os.path.isfile(os.path.join(data_dir, f))
         for f in os.listdir(data_dir)
     ) if os.path.isdir(data_dir) else False
-    if not moved_files and not has_dxgi_override:
+    if not copied_files and not has_dxgi_override:
         print("No files were moved. Aborting sequence.")
         return
 
@@ -684,7 +683,7 @@ def launch_and_restore():
             + "\n\nThe launcher will restore its files and stop. Try clicking "
               "SET GAME FOLDER and re-selecting your Helldivers 2 install."
         )
-        move_files_back_to_data(moved_files)
+        remove_files_from_bin(copied_files)
         return
 
     print("\nLaunching helldivers2.exe...")
@@ -696,19 +695,19 @@ def launch_and_restore():
             "Could not locate steam.exe. Please make sure Steam is installed.\n\n"
             "The launcher will restore its files and stop."
         )
-        move_files_back_to_data(moved_files)
+        remove_files_from_bin(copied_files)
         return
 
     # Right before handing off to Steam, verify
     # that helldivers2.exe AND every required launcher file is actually
     # present in the bin folder.
-    missing_in_bin = verify_files_in_bin(game_dir, moved_files)
+    missing_in_bin = verify_files_in_bin(game_dir, copied_files)
     if missing_in_bin:
         if HELLDIVERS_EXE_FILENAME in missing_in_bin:
             # helldivers2.exe isn't where we expect it — most likely the
             # user picked the wrong folder. Give them a chance to re-select.
             prompt_for_new_game_folder(game_dir, missing_in_bin)
-            move_files_back_to_data(moved_files)
+            remove_files_from_bin(copied_files)
             return
 
         # helldivers2.exe is present, but one or more launcher files are
@@ -727,7 +726,7 @@ def launch_and_restore():
             "The launcher will restore whatever it can and stop without "
             "launching the game."
         )
-        move_files_back_to_data(moved_files)
+        remove_files_from_bin(copied_files)
         return
 
     game_app_id = "553850"
@@ -739,11 +738,11 @@ def launch_and_restore():
             f"Could not start the game via Steam.\n\nError: {e}\n\n"
             "The launcher will restore its files and stop."
         )
-        move_files_back_to_data(moved_files)
+        remove_files_from_bin(copied_files)
         return
 
     print("Waiting 45 seconds for game initialization...")
     time.sleep(45)
 
-    move_files_back_to_data(moved_files)
+    remove_files_from_bin(copied_files)
     print("Successfully launched game and moved files back.")
