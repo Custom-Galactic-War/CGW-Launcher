@@ -1,4 +1,5 @@
 import os
+import sys
 from PyQt6.QtGui import QFontDatabase
 
 # File paths
@@ -28,13 +29,18 @@ COLOR_TEXT_LIGHT = "#FFFFFF"
 COLOR_TEXT_WARN = "#FFEF00"
 
 def load_sinclair_font():
-    # Tries loading FS Sinclair, with Consolas as a fallback. 
-    font_family = "Consolas"
+    if sys.platform.startswith("win"):
+        font_family = "Consolas"
+    elif sys.platform == "darwin":
+        font_family = "Menlo"
+    else:
+        font_family = "DejaVu Sans Mono"
+
     font_path = os.path.join(ASSET_DIR, "fonts", "FS Sinclair Pack", "FS Sinclair Medium.otf")
-    
+
     if os.path.exists(font_path):
         font_id = QFontDatabase.addApplicationFont(font_path)
         if font_id != -1:
             font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-            
+
     return font_family

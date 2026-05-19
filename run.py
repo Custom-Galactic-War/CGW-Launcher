@@ -98,7 +98,7 @@ class CustomGalacticWarLauncher(QMainWindow):
         self.path_label.setWordWrap(True)
         self.path_label.setStyleSheet(
             f"QLabel {{ color: {constants.COLOR_TEXT_LIGHT}; "
-            f"font-family: Consolas; font-size: 11px; padding: 4px 30px; }}"
+            f"font-family: Consolas, monospace; font-size: 11px; padding: 4px 30px; }}"
         )
         self.main_layout.addWidget(self.path_label)
 
@@ -213,7 +213,7 @@ class CustomGalacticWarLauncher(QMainWindow):
                 )
                 self.path_label.setStyleSheet(
                     f"QLabel {{ color: {constants.COLOR_TEXT_LIGHT}; "
-                    f"font-family: Consolas; font-size: 11px; padding: 4px 30px; }}"
+                    f"font-family: Consolas, monospace; font-size: 11px; padding: 4px 30px; }}"
                 )
             else:
                 self.path_label.setText(
@@ -221,7 +221,7 @@ class CustomGalacticWarLauncher(QMainWindow):
                 )
                 self.path_label.setStyleSheet(
                     f"QLabel {{ color: {constants.COLOR_TEXT_WARN}; "
-                    f"font-family: Consolas; font-size: 11px; padding: 4px 30px; }}"
+                    f"font-family: Consolas, monospace; font-size: 11px; padding: 4px 30px; }}"
                 )
             self.path_label.show()
         else:
@@ -304,7 +304,6 @@ class CustomGalacticWarLauncher(QMainWindow):
             self.rpc_manager.stop()
             self.rpc_manager.wait()
         functions.ensure_required_files_in_data()
-        self.rpc_manager.stop()
         super().closeEvent(event)
 
 if __name__ == "__main__":
