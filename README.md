@@ -21,8 +21,6 @@ https://docs.discord.com/developers/developer-tools/game-sdk officially from dis
 
 ---
 
-When launching there is an error "There is no Windows program configured to open this type of file."
-
-Doesn't seem to access CGW but does crash with "GameGuard: Hack attempt Detected! ... Error code: 1013"
+When launching there is an error "[There is no Windows program configured to open this type of file](https://i.imgur.com/dzpsQGe.png)." followed by "[Failed to retrieve Discord ID](https://i.imgur.com/Jp1oevh.png)" and of course it doesn't access CGW. Game then crashes with "[GameGuard: Hack attempt Detected! ... Error code: 1013](https://i.imgur.com/KJUZzpT.png)" because of the injection.
 
 ---
