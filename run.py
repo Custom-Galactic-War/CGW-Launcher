@@ -48,7 +48,7 @@ class CustomGalacticWarLauncher(QMainWindow):
         self.setup_ui()
 
         # Discord RPC
-        self.rpc_manager = DiscordRPCManager("1452435086922373267")
+        self.rpc_manager = DiscordRPCManager("1440833019962327231")
         self.rpc_manager.start()
 
     def setup_ui(self):
