@@ -63,6 +63,32 @@ def clear_saved_bin_dir():
     return True
 
 
+# Matches the Helldivers 2 Steam join-lobby URL format.
+# steam://joinlobby/553850/<lobby_id>/<host_steam_id>
+# Hardcoded to Helldivers 2's appid (553850) so pastes from other Steam games
+# don't accidentally get accepted.
+_STEAM_LOBBY_RE = re.compile(
+    r"steam://joinlobby/553850/(\d+)/(\d+)\b",
+    re.IGNORECASE,
+)
+
+
+# Parse a Steam join-lobby URL out of arbitrary pasted text. Returns
+# (canonical_url, tail) where `tail` is the "<lobby_id>/<host_steam_id>"
+# portion (used to build the GitHub-Pages redirect URL). Returns (None, None)
+# if the input doesn't contain a recognizable Helldivers 2 lobby URL.
+def parse_lobby_url(text):
+    if not text:
+        return None, None
+    match = _STEAM_LOBBY_RE.search(text.strip())
+    if not match:
+        return None, None
+    lobby_id, host_id = match.group(1), match.group(2)
+    canonical = f"steam://joinlobby/553850/{lobby_id}/{host_id}"
+    tail = f"{lobby_id}/{host_id}"
+    return canonical, tail
+
+
 # Accepts a user-selected folder and resolves it to a usable Helldivers 2 bin
 # folder. The user may pick either the 'bin' folder itself or the game's root
 # folder (which contains a 'bin' subfolder). Returns None if the selection
