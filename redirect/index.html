@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Joining Custom Galactic War Lobby...</title>
+    <meta name="robots" content="noindex">
+    <style>
+        :root {
+            --primary: #5ce372;
+            --bg-darker: #050505;
+            --text-light: #ffffff;
+            --text-warn: #ffef00;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            min-height: 100%;
+            background: var(--bg-darker);
+            color: var(--text-light);
+            font-family: Consolas, "DejaVu Sans Mono", monospace;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2em 1em;
+            box-sizing: border-box;
+        }
+        h1 {
+            color: var(--primary);
+            font-size: 24px;
+            letter-spacing: 1.5px;
+            margin: 0 0 16px;
+        }
+        p {
+            max-width: 520px;
+            line-height: 1.55;
+            margin: 6px 0;
+            font-size: 14px;
+        }
+        .warn { color: var(--text-warn); }
+        a.button {
+            display: inline-block;
+            margin-top: 18px;
+            padding: 10px 22px;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+        a.button:hover {
+            background: var(--primary);
+            color: var(--bg-darker);
+        }
+        code {
+            background: #111;
+            border: 1px solid #222;
+            padding: 2px 6px;
+            color: var(--primary);
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <h1 id="title">JOINING LOBBY...</h1>
+    <p id="msg">If Steam doesn't open in a moment, click the button below.</p>
+    <p class="warn">Make sure Steam is running and Helldivers 2 is installed.</p>
+    <a id="link" class="button" href="#" rel="noopener">OPEN IN STEAM</a>
+    <script>
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        // Accept either ?id=lobby/host or the legacy ?lobby=<full URL>.
+        var id = params.get("id");
+        var fallback = params.get("lobby");
+        var steamUrl = null;
+
+        if (id && /^[0-9]+\/[0-9]+$/.test(id)) {
+            steamUrl = "steam://joinlobby/553850/" + id;
+        } else if (fallback && /^steam:\/\/joinlobby\/553850\/[0-9]+\/[0-9]+$/i.test(fallback)) {
+            steamUrl = fallback;
+        }
+
+        var titleEl = document.getElementById("title");
+        var msgEl = document.getElementById("msg");
+        var linkEl = document.getElementById("link");
+
+        if (!steamUrl) {
+            titleEl.textContent = "INVALID LOBBY LINK";
+            msgEl.innerHTML = "This URL doesn't include a valid Helldivers 2 lobby id.<br>"
+                + "Expected format: <code>?id=&lt;lobby_id&gt;/&lt;host_steam_id&gt;</code>";
+            linkEl.style.display = "none";
+            return;
+        }
+
+        linkEl.href = steamUrl;
+        // Most browsers will prompt the user to open Steam on protocol-handler navigation;
+        // assigning to location triggers that prompt without a click.
+        try { window.location.assign(steamUrl); } catch (e) {}
+    })();
+    </script>
+</body>
+</html>
