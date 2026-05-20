@@ -26,41 +26,6 @@ permissions:
   contents: write   # required by the release job to upload binaries
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyqt6 pypresence pyinstaller
-
-      - name: Build Windows executable
-        # Mirrors "pyinstaller command.txt". UPX is deliberately NOT used:
-        # UPX-packed binaries frequently trigger antivirus false positives,
-        # and this launcher already has to cope with AV deleting its files.
-        run: >
-          pyinstaller --noconfirm --windowed --uac-admin --onefile
-          --icon "icon.png" --name "E-710 Launcher" --clean
-          --add-data "icon.png;."
-          --exclude-module "cryptography" --exclude-module "numpy"
-          --exclude-module "multiprocessing" --exclude-module "wheel"
-          --version-file=version.txt run.py
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: E-710-Launcher-Windows
-          path: dist/E-710 Launcher.exe
-          if-no-files-found: error
-
   build-linux:
     # ubuntu-22.04 has an older glibc than ubuntu-latest, so the binary runs
     # on a wider range of (older) Linux distros. If GitHub ever retires this
