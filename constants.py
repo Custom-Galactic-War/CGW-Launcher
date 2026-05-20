@@ -1,4 +1,5 @@
 import os
+import sys
 from PyQt6.QtGui import QFontDatabase
 
 # File paths
@@ -27,14 +28,36 @@ COLOR_BG_DARKER = "#050505"
 COLOR_TEXT_LIGHT = "#FFFFFF"
 COLOR_TEXT_WARN = "#FFEF00"
 
+# URL of a static "Join Lobby" redirect page that bounces visitors from an
+# https:// page into steam://joinlobby/553850/... — needed because Discord
+# rejects steam:// URLs in Rich Presence buttons. The page itself lives in
+# this repo at docs/index.html.
+#
+# Deploy steps (one-time):
+#   1. Push docs/index.html to a public GitHub repo (or any static host).
+#   2. Enable GitHub Pages on that repo (Settings -> Pages -> Branch: main,
+#      Folder: /docs). GitHub Pages only exposes "/ (root)" and "/docs" as
+#      folder choices, which is why the page lives in docs/.
+#   3. Replace the URL below with your own Pages URL (it must end with a /).
+#
+# If left blank, the launcher will still let you set a lobby and update
+# Discord party info (Hosting Lobby 1/4) — it just won't add a clickable
+# "Join Lobby" button on the Discord presence card.
+LOBBY_REDIRECT_BASE = "https://Custom-Galactic-War.github.io/CGW-Launcher/"
+
 def load_sinclair_font():
-    # Tries loading FS Sinclair, with Consolas as a fallback. 
-    font_family = "Consolas"
+    if sys.platform.startswith("win"):
+        font_family = "Consolas"
+    elif sys.platform == "darwin":
+        font_family = "Menlo"
+    else:
+        font_family = "DejaVu Sans Mono"
+
     font_path = os.path.join(ASSET_DIR, "fonts", "FS Sinclair Pack", "FS Sinclair Medium.otf")
-    
+
     if os.path.exists(font_path):
         font_id = QFontDatabase.addApplicationFont(font_path)
         if font_id != -1:
             font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-            
+
     return font_family

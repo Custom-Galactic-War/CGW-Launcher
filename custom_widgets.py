@@ -311,7 +311,7 @@ class InstructionsOverlay(QWidget):
             f"QPushButton {{ background-color: transparent; "
             f"color: {constants.COLOR_PRIMARY}; "
             f"border: 2px solid {constants.COLOR_PRIMARY}; "
-            f"font-family: Consolas; font-weight: bold; }}"
+            f"font-family: Consolas, monospace; font-weight: bold; }}"
             f"QPushButton:hover {{ background-color: {constants.COLOR_PRIMARY}; "
             f"color: {constants.COLOR_BG_DARKER}; }}"
         )
@@ -350,7 +350,7 @@ class InstructionsOverlay(QWidget):
             f"QPushButton {{ background-color: transparent; "
             f"color: {constants.COLOR_PRIMARY}; "
             f"border: 2px solid {constants.COLOR_PRIMARY}; "
-            f"font-family: Consolas; font-weight: bold; "
+            f"font-family: Consolas, monospace; font-weight: bold; "
             f"letter-spacing: 2px; padding: 4px 14px; }}"
             f"QPushButton:hover {{ background-color: {constants.COLOR_PRIMARY}; "
             f"color: {constants.COLOR_BG_DARKER}; }}"

@@ -1,0 +1,139 @@
+name: Build Launcher
+
+# Builds the E-710 Launcher for Windows and Linux.
+#
+# PyInstaller cannot cross-compile, so each OS is built on its own runner:
+#   - Windows -> windows-latest -> "E-710 Launcher.exe"
+#   - Linux   -> ubuntu-22.04   -> "E-710 Launcher" (native ELF binary)
+#
+# IMPORTANT: the Linux binary runs NATIVELY on Linux. It must never be run
+# under Wine/Proton. Proton is only for Helldivers 2 itself; the launcher is
+# an ordinary desktop app and detects the real OS via platform.system().
+#
+# Triggers:
+#   - Manual: Actions tab -> "Build Launcher" -> "Run workflow".
+#   - Tags:   pushing a tag like v1.2.0 builds both binaries AND publishes a
+#             GitHub Release with them attached.
+# To also build on every push, add a `branches:` block under `push:` below.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required by the release job to upload binaries
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyqt6 pypresence pyinstaller
+
+      - name: Build Windows executable
+        # Mirrors "pyinstaller command.txt". UPX is deliberately NOT used:
+        # UPX-packed binaries frequently trigger antivirus false positives,
+        # and this launcher already has to cope with AV deleting its files.
+        run: >
+          pyinstaller --noconfirm --windowed --uac-admin --onefile
+          --icon "icon.png" --name "E-710 Launcher" --clean
+          --add-data "icon.png;."
+          --exclude-module "cryptography" --exclude-module "numpy"
+          --exclude-module "multiprocessing" --exclude-module "wheel"
+          --version-file=version.txt run.py
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: E-710-Launcher-Windows
+          path: dist/E-710 Launcher.exe
+          if-no-files-found: error
+
+  build-linux:
+    # ubuntu-22.04 has an older glibc than ubuntu-latest, so the binary runs
+    # on a wider range of (older) Linux distros. If GitHub ever retires this
+    # runner label, switch to ubuntu-latest (binary will then need a newer
+    # glibc and won't run on older systems).
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system libraries
+        # python3-tk           -> Tcl/Tk shared libs so PyInstaller can bundle
+        #                         tkinter (functions.py uses tkinter dialogs).
+        # libgl/libegl/libxcb* -> needed for PyQt6 to import during analysis.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-tk \
+            libgl1 libegl1 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-cursor0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyqt6 pypresence pyinstaller
+
+      - name: Build Linux binary
+        # Differences from the Windows command:
+        #   - --add-data separator is ":" on Linux (";" on Windows)
+        #   - --uac-admin, --version-file, --icon dropped (all Windows-only)
+        run: >
+          pyinstaller --noconfirm --windowed --onefile
+          --name "E-710 Launcher" --clean
+          --add-data "icon.png:."
+          --exclude-module "cryptography" --exclude-module "numpy"
+          --exclude-module "multiprocessing" --exclude-module "wheel"
+          run.py
+
+      - name: Package Linux binary
+        # Tar the binary so its executable permission bit survives: GitHub
+        # artifacts and release assets do NOT preserve Unix file permissions.
+        run: |
+          chmod +x "dist/E-710 Launcher"
+          tar -czf E-710-Launcher-Linux.tar.gz -C dist "E-710 Launcher"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: E-710-Launcher-Linux
+          path: E-710-Launcher-Linux.tar.gz
+          if-no-files-found: error
+
+  release:
+    # Runs only for version tags (v*). Publishes a Release with both binaries.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/E-710-Launcher-Windows/*
+            artifacts/E-710-Launcher-Linux/*
+          fail_on_unmatched_files: true

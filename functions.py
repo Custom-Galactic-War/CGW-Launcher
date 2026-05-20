@@ -1,4 +1,5 @@
 import os
+import platform
 import re
 import shutil
 import string
@@ -12,6 +13,8 @@ try:
     import winreg
 except ImportError:
     winreg = None
+
+_IS_WINDOWS = platform.system() == "Windows"
 
 CONFIG_FILE = os.path.join(os.getcwd(), 'data', 'launcher_config.json')
 
@@ -58,6 +61,32 @@ def clear_saved_bin_dir():
         cfg.pop('helldivers_bin_dir', None)
         return save_config(cfg)
     return True
+
+
+# Matches the Helldivers 2 Steam join-lobby URL format.
+# steam://joinlobby/553850/<lobby_id>/<host_steam_id>
+# Hardcoded to Helldivers 2's appid (553850) so pastes from other Steam games
+# don't accidentally get accepted.
+_STEAM_LOBBY_RE = re.compile(
+    r"steam://joinlobby/553850/(\d+)/(\d+)\b",
+    re.IGNORECASE,
+)
+
+
+# Parse a Steam join-lobby URL out of arbitrary pasted text. Returns
+# (canonical_url, tail) where `tail` is the "<lobby_id>/<host_steam_id>"
+# portion (used to build the GitHub-Pages redirect URL). Returns (None, None)
+# if the input doesn't contain a recognizable Helldivers 2 lobby URL.
+def parse_lobby_url(text):
+    if not text:
+        return None, None
+    match = _STEAM_LOBBY_RE.search(text.strip())
+    if not match:
+        return None, None
+    lobby_id, host_id = match.group(1), match.group(2)
+    canonical = f"steam://joinlobby/553850/{lobby_id}/{host_id}"
+    tail = f"{lobby_id}/{host_id}"
+    return canonical, tail
 
 
 # Accepts a user-selected folder and resolves it to a usable Helldivers 2 bin
@@ -123,89 +152,195 @@ def show_antivirus_warning(missing_files):
     )
 
 
-# Locate steam.exe by checking the Windows registry, then common install paths.
-def find_steam_exe():
-    install_path = find_steam_install_path()
-    if install_path:
-        candidate = os.path.join(install_path, "steam.exe")
-        if os.path.isfile(candidate):
-            return candidate
+# Well-known Steam install locations on Linux (native + Flatpak). Most of the
+# `~/.steam/*` paths are symlinks that resolve to one of the others; we
+# de-duplicate via os.path.realpath when iterating.
+_LINUX_STEAM_INSTALL_CANDIDATES = (
+    "~/.local/share/Steam",
+    "~/.steam/steam",
+    "~/.steam/root",
+    "~/.steam/debian-installation",
+    "~/.var/app/com.valvesoftware.Steam/.local/share/Steam",
+)
 
-    if winreg is not None:
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
-                value, _ = winreg.QueryValueEx(key, "SteamExe")
-                if value and os.path.isfile(value):
-                    return value
-        except OSError:
-            pass
 
-    fallback_paths = [
-        r"Program Files (x86)\Steam\steam.exe",
-        r"Program Files\Steam\steam.exe",
+# Yields candidate directories that might contain a Steam library or game
+# install. On Windows this is every accessible drive letter (used to brute-force
+# common install layouts). On Linux it's the user's home plus common external
+# mount points (/mnt, /media, /run/media/<user>) plus their immediate children
+# so that a drive mounted at e.g. /mnt/games is searched.
+def _drive_search_roots():
+    if _IS_WINDOWS:
+        for case in (string.ascii_uppercase, string.ascii_lowercase):
+            for letter in case:
+                drive = f"{letter}:\\"
+                if os.path.exists(drive):
+                    yield drive
+        return
+
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    roots = [
+        os.path.expanduser("~"),
+        "/mnt",
+        "/media",
     ]
+    if user:
+        roots.extend([f"/media/{user}", f"/run/media/{user}"])
 
-    for drive_letter in string.ascii_uppercase:
-        drive = f"{drive_letter}:\\"
-        if os.path.exists(drive):
-            for subpath in fallback_paths:
-                potential_path = os.path.join(drive, subpath)
-                if os.path.isfile(potential_path):
-                    return potential_path
+    seen = set()
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        real = os.path.realpath(root)
+        if real in seen:
+            continue
+        seen.add(real)
+        yield root + os.sep
+        try:
+            for entry in os.listdir(root):
+                full = os.path.join(root, entry)
+                if os.path.isdir(full):
+                    real_sub = os.path.realpath(full)
+                    if real_sub in seen:
+                        continue
+                    seen.add(real_sub)
+                    yield full + os.sep
+        except (OSError, PermissionError):
+            continue
 
-    for drive_letter in string.ascii_lowercase:
-        drive = f"{drive_letter}:\\"
-        if os.path.exists(drive):
-            for subpath in fallback_paths:
-                potential_path = os.path.join(drive, subpath)
-                if os.path.isfile(potential_path):
-                    return potential_path
 
-    found = shutil.which("steam.exe") or shutil.which("steam")
+# Returns the argv list needed to invoke Steam, or None. On Windows this is
+# `[steam.exe]`. On Linux it's either `[/usr/bin/steam]` (native install) or
+# `["flatpak", "run", "com.valvesoftware.Steam"]` (Flatpak install).
+def find_steam_launch_argv():
+    if _IS_WINDOWS:
+        path = find_steam_exe()
+        return [path] if path else None
+
+    # Native Linux Steam — prefer whatever's on PATH.
+    found = shutil.which("steam")
     if found:
-        return found
+        return [found]
+
+    native_paths = [
+        "/usr/bin/steam",
+        "/usr/games/steam",
+        "/usr/local/bin/steam",
+        os.path.expanduser("~/.local/bin/steam"),
+        os.path.expanduser("~/.steam/steam.sh"),
+    ]
+    for p in native_paths:
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return [p]
+
+    # Flatpak Steam — the binary isn't directly on PATH, but `flatpak run` is.
+    flatpak = shutil.which("flatpak")
+    if flatpak:
+        flatpak_install_dirs = (
+            os.path.expanduser("~/.var/app/com.valvesoftware.Steam"),
+            "/var/lib/flatpak/app/com.valvesoftware.Steam",
+        )
+        if any(os.path.isdir(d) for d in flatpak_install_dirs):
+            return [flatpak, "run", "com.valvesoftware.Steam"]
 
     return None
 
 
-# Locate the Steam install directory itself (not steam.exe).
-def find_steam_install_path():
-    if winreg is not None:
-        reg_locations = [
-            (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
-            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam", "InstallPath"),
-        ]
-        for hive, subkey, value_name in reg_locations:
+# Locate the Steam launcher binary (steam.exe on Windows, `steam` on Linux).
+# Returns a single path string for native installs. Returns None on Linux if
+# only a Flatpak install is available (callers should use find_steam_launch_argv
+# for the actual invocation).
+def find_steam_exe():
+    if _IS_WINDOWS:
+        install_path = find_steam_install_path()
+        if install_path:
+            candidate = os.path.join(install_path, "steam.exe")
+            if os.path.isfile(candidate):
+                return candidate
+
+        if winreg is not None:
             try:
-                with winreg.OpenKey(hive, subkey) as key:
-                    value, _ = winreg.QueryValueEx(key, value_name)
-                    if value and os.path.isdir(value):
-                        return os.path.normpath(value)
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+                    value, _ = winreg.QueryValueEx(key, "SteamExe")
+                    if value and os.path.isfile(value):
+                        return value
             except OSError:
-                continue
+                pass
 
-    fallback_paths = [
-        r"Program Files (x86)\Steam",
-        r"Program Files\Steam",
-    ]
+        fallback_paths = [
+            r"Program Files (x86)\Steam\steam.exe",
+            r"Program Files\Steam\steam.exe",
+        ]
+        for drive in _drive_search_roots():
+            for subpath in fallback_paths:
+                potential_path = os.path.join(drive, subpath)
+                if os.path.isfile(potential_path):
+                    return potential_path
 
-    for drive_letter in string.ascii_uppercase:
-        drive = f"{drive_letter}:\\"
-        if os.path.exists(drive):
+        found = shutil.which("steam.exe") or shutil.which("steam")
+        if found:
+            return found
+        return None
+
+    # Linux: prefer the `steam` binary on PATH, then well-known native paths.
+    found = shutil.which("steam")
+    if found:
+        return found
+    for path in (
+        "/usr/bin/steam",
+        "/usr/games/steam",
+        "/usr/local/bin/steam",
+        os.path.expanduser("~/.local/bin/steam"),
+        os.path.expanduser("~/.steam/steam.sh"),
+    ):
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+# Locate the Steam install directory itself (not the launcher binary).
+def find_steam_install_path():
+    if _IS_WINDOWS:
+        if winreg is not None:
+            reg_locations = [
+                (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath"),
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam", "InstallPath"),
+            ]
+            for hive, subkey, value_name in reg_locations:
+                try:
+                    with winreg.OpenKey(hive, subkey) as key:
+                        value, _ = winreg.QueryValueEx(key, value_name)
+                        if value and os.path.isdir(value):
+                            return os.path.normpath(value)
+                except OSError:
+                    continue
+
+        fallback_paths = [
+            r"Program Files (x86)\Steam",
+            r"Program Files\Steam",
+        ]
+        for drive in _drive_search_roots():
             for subpath in fallback_paths:
                 potential_path = os.path.join(drive, subpath)
                 if os.path.isdir(potential_path):
                     return potential_path
+        return None
 
-    for drive_letter in string.ascii_lowercase:
-        drive = f"{drive_letter}:\\"
-        if os.path.exists(drive):
-            for subpath in fallback_paths:
-                potential_path = os.path.join(drive, subpath)
-                if os.path.isdir(potential_path):
-                    return potential_path
-
+    # Linux: well-known native + Flatpak install locations. Several entries
+    # are symlinks pointing at the same place, so de-dupe via realpath.
+    seen = set()
+    for raw in _LINUX_STEAM_INSTALL_CANDIDATES:
+        expanded = os.path.expanduser(raw)
+        if not os.path.isdir(expanded):
+            continue
+        real = os.path.realpath(expanded)
+        if real in seen:
+            continue
+        seen.add(real)
+        # Sanity check — a real Steam install has a steamapps subfolder.
+        if os.path.isdir(os.path.join(real, "steamapps")):
+            return real
     return None
 
 
@@ -278,40 +413,72 @@ def modify_mounts_json(left_path, right_path):
 
 # Auto-detection of the Helldivers 2 bin directory (no manual override).
 # Asks Steam directly via libraryfolders.vdf (works regardless of drive/path),
-# then falls back to scanning every drive for common Steam library locations.
+# then falls back to scanning common Steam library locations.
 def auto_detect_helldivers_bin_dir():
-    # Preferred: ask Steam where its libraries live.
+    # Preferred: ask Steam where its libraries live. libraryfolders.vdf has
+    # the same format on Windows and Linux/Proton; the paths inside are
+    # platform-native (Linux uses forward slashes).
     for library in get_steam_library_folders():
         candidate = os.path.join(library, "steamapps", "common", "Helldivers 2", "bin")
         if os.path.isdir(candidate):
             return candidate
 
-    # Fallback: brute-force scan every drive letter for common library layouts.
-    steam_subpaths = [
-        r"Program Files (x86)\Steam\steamapps\common\Helldivers 2\bin",
-        r"Program Files\Steam\steamapps\common\Helldivers 2\bin",
-        r"SteamLibrary\steamapps\common\Helldivers 2\bin",
-        r"Steam\steamapps\common\Helldivers 2\bin",
-        r"Games\SteamLibrary\steamapps\common\Helldivers 2\bin",
-        r"SteamGames\steamapps\common\Helldivers 2\bin",
-        r"steamapps\common\Helldivers 2\bin",
+    # Fallback: brute-force scan common library layouts. The subpath list
+    # branches by platform because the layouts differ — Windows looks under
+    # "Program Files (x86)\Steam\..." etc. while Linux uses XDG paths
+    # (~/.local/share/Steam/...) and Flatpak's data dir.
+    if _IS_WINDOWS:
+        steam_subpaths = [
+            r"Program Files (x86)\Steam\steamapps\common\Helldivers 2\bin",
+            r"Program Files\Steam\steamapps\common\Helldivers 2\bin",
+            r"SteamLibrary\steamapps\common\Helldivers 2\bin",
+            r"Steam\steamapps\common\Helldivers 2\bin",
+            r"Games\SteamLibrary\steamapps\common\Helldivers 2\bin",
+            r"SteamGames\steamapps\common\Helldivers 2\bin",
+            r"steamapps\common\Helldivers 2\bin",
+        ]
+        for drive in _drive_search_roots():
+            for subpath in steam_subpaths:
+                potential_path = os.path.join(drive, subpath)
+                if os.path.isdir(potential_path):
+                    return potential_path
+        return None
+
+    # Linux: Proton installs the game under the Steam library, exactly as on
+    # Windows — the on-disk binary is still helldivers2.exe (Proton runs it
+    # via Wine). Library roots vary by install method.
+    linux_library_roots = [
+        os.path.expanduser("~/.local/share/Steam"),
+        os.path.expanduser("~/.steam/steam"),
+        os.path.expanduser("~/.steam/root"),
+        os.path.expanduser("~/.steam/debian-installation"),
+        os.path.expanduser("~/.var/app/com.valvesoftware.Steam/.local/share/Steam"),
     ]
+    seen = set()
+    for root in linux_library_roots:
+        if not os.path.isdir(root):
+            continue
+        real = os.path.realpath(root)
+        if real in seen:
+            continue
+        seen.add(real)
+        candidate = os.path.join(real, "steamapps", "common", "Helldivers 2", "bin")
+        if os.path.isdir(candidate):
+            return candidate
 
-    for drive_letter in string.ascii_uppercase:
-        drive = f"{drive_letter}:\\"
-        if os.path.exists(drive):
-            for subpath in steam_subpaths:
-                potential_path = os.path.join(drive, subpath)
-                if os.path.isdir(potential_path):
-                    return potential_path
-
-    for drive_letter in string.ascii_lowercase:
-        drive = f"{drive_letter}:\\"
-        if os.path.exists(drive):
-            for subpath in steam_subpaths:
-                potential_path = os.path.join(drive, subpath)
-                if os.path.isdir(potential_path):
-                    return potential_path
+    # Last-resort scan: external mounts that may host a Steam library.
+    linux_subpaths = [
+        os.path.join("SteamLibrary", "steamapps", "common", "Helldivers 2", "bin"),
+        os.path.join("Steam", "steamapps", "common", "Helldivers 2", "bin"),
+        os.path.join("Games", "SteamLibrary", "steamapps", "common", "Helldivers 2", "bin"),
+        os.path.join("SteamGames", "steamapps", "common", "Helldivers 2", "bin"),
+        os.path.join("steamapps", "common", "Helldivers 2", "bin"),
+    ]
+    for root in _drive_search_roots():
+        for subpath in linux_subpaths:
+            potential_path = os.path.join(root, subpath)
+            if os.path.isdir(potential_path):
+                return potential_path
     return None
 
 
@@ -326,10 +493,60 @@ def get_helldivers_bin_dir():
 # Standard game files that must exist in the Helldivers 2 'bin' folder for
 # the modded launch to work. Anti-virus software occasionally deletes these
 # (especially msvcp140.dll) after they've been moved into place.
-REQUIRED_BIN_FILENAMES = ("discord_game_sdk.dll", "mounts.json", "msvcp140.dll")
+REQUIRED_BIN_FILENAMES = ("discord_game_sdk.dll", "mounts.json", "msvcp140.dll", "msvcp140_real.dll")
 
 # Anchor file that defines the bin folder — used as an additional sanity check.
 HELLDIVERS_EXE_FILENAME = "helldivers2.exe"
+
+
+# Returns True if a helldivers2.exe process is currently running. Used to
+# block CONNECT clicks while the game is already open — moving files into the
+# bin folder while the game has them mapped is a recipe for corrupted state.
+# The helldivers2.exe name is the same on Linux Proton (Wine runs it under the
+# same process name), so the same check works on both platforms.
+def is_helldivers_running():
+    target = HELLDIVERS_EXE_FILENAME.lower()
+
+    if _IS_WINDOWS:
+        try:
+            # CREATE_NO_WINDOW (0x08000000) hides the conhost flash that
+            # tasklist would otherwise produce when called from a GUI app.
+            result = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {HELLDIVERS_EXE_FILENAME}", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=0x08000000,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return target in result.stdout.lower()
+
+    # Linux: scan /proc for any process whose executable basename matches.
+    # On Linux/Proton the game runs as helldivers2.exe inside Wine, so the
+    # /proc/<pid>/comm value is "helldivers2.exe" (truncated to 15 chars on
+    # older kernels — still matches our substring check).
+    proc_root = "/proc"
+    if not os.path.isdir(proc_root):
+        return False
+    try:
+        entries = os.listdir(proc_root)
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        comm_path = os.path.join(proc_root, entry, "comm")
+        try:
+            with open(comm_path, "r", encoding="utf-8", errors="ignore") as f:
+                comm = f.read().strip().lower()
+        except (OSError, IOError):
+            continue
+        # /proc/<pid>/comm truncates to 15 chars on some kernels, so we
+        # match a prefix of the target rather than equality.
+        if comm and (comm == target or target.startswith(comm)):
+            return True
+    return False
 
 
 # Helper for the case where helldivers2.exe is missing from the
@@ -474,7 +691,7 @@ def move_files_to_helldivers():
         return []
 
     # Detect AV-deleted required files BEFORE moving anything.
-    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll"]
+    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll", "msvcp140_real.dll"]
     missing_from_both = [
         name for name in required
         if not os.path.isfile(os.path.join(source_dir, name))
@@ -530,7 +747,7 @@ def move_files_to_helldivers():
 
 # Ensures required files exist in the local 'data' folder, retrieving any missing ones from the Helldivers 2 bin folder.
 def ensure_required_files_in_data():
-    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll"]
+    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll", "msvcp140_real.dll"]
     data_dir = os.path.join(os.getcwd(), 'data')
     os.makedirs(data_dir, exist_ok=True)
 
@@ -642,6 +859,19 @@ def move_files_back_to_data(files_to_retrieve):
 def launch_and_restore():
     print("Starting CGW")
 
+    # Block before touching anything: if HD2 is already open, modifying its
+    # bin folder would either fail outright (file locks) or silently corrupt
+    # the live mod state. Surface this as an error so the launcher resets.
+    if is_helldivers_running():
+        show_error_box(
+            "Helldivers 2 Already Running",
+            "Helldivers 2 is already open.\n\n"
+            "Please close the game completely before clicking CONNECT, "
+            "otherwise the launcher cannot inject its files safely.\n\n"
+            "The launcher will not modify any files on this attempt."
+        )
+        return
+
     errors_before_inject = error_count_since_reset()
 
     # "Inject" files. move_files_to_helldivers handles its own error
@@ -680,11 +910,12 @@ def launch_and_restore():
 
     print("\nLaunching helldivers2.exe...")
 
-    steam_path = find_steam_exe()
-    if not steam_path:
+    steam_argv = find_steam_launch_argv()
+    if not steam_argv:
         show_error_box(
             "Steam Not Found",
-            "Could not locate steam.exe. Please make sure Steam is installed.\n\n"
+            "Could not locate Steam. Please make sure Steam is installed "
+            "(native or Flatpak on Linux).\n\n"
             "The launcher will restore its files and stop."
         )
         move_files_back_to_data(moved_files)
@@ -723,7 +954,7 @@ def launch_and_restore():
 
     game_app_id = "553850"
     try:
-        subprocess.Popen([steam_path, "-applaunch", game_app_id], cwd=game_dir)
+        subprocess.Popen([*steam_argv, "-applaunch", game_app_id], cwd=game_dir)
     except Exception as e:
         show_error_box(
             "Failed to Launch Helldivers 2",
