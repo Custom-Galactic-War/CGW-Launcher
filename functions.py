@@ -467,10 +467,60 @@ def get_helldivers_bin_dir():
 # Standard game files that must exist in the Helldivers 2 'bin' folder for
 # the modded launch to work. Anti-virus software occasionally deletes these
 # (especially msvcp140.dll) after they've been moved into place.
-REQUIRED_BIN_FILENAMES = ("discord_game_sdk.dll", "mounts.json", "msvcp140.dll")
+REQUIRED_BIN_FILENAMES = ("discord_game_sdk.dll", "mounts.json", "msvcp140.dll", "msvcp140_real.dll")
 
 # Anchor file that defines the bin folder — used as an additional sanity check.
 HELLDIVERS_EXE_FILENAME = "helldivers2.exe"
+
+
+# Returns True if a helldivers2.exe process is currently running. Used to
+# block CONNECT clicks while the game is already open — moving files into the
+# bin folder while the game has them mapped is a recipe for corrupted state.
+# The helldivers2.exe name is the same on Linux Proton (Wine runs it under the
+# same process name), so the same check works on both platforms.
+def is_helldivers_running():
+    target = HELLDIVERS_EXE_FILENAME.lower()
+
+    if _IS_WINDOWS:
+        try:
+            # CREATE_NO_WINDOW (0x08000000) hides the conhost flash that
+            # tasklist would otherwise produce when called from a GUI app.
+            result = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {HELLDIVERS_EXE_FILENAME}", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=0x08000000,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return target in result.stdout.lower()
+
+    # Linux: scan /proc for any process whose executable basename matches.
+    # On Linux/Proton the game runs as helldivers2.exe inside Wine, so the
+    # /proc/<pid>/comm value is "helldivers2.exe" (truncated to 15 chars on
+    # older kernels — still matches our substring check).
+    proc_root = "/proc"
+    if not os.path.isdir(proc_root):
+        return False
+    try:
+        entries = os.listdir(proc_root)
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        comm_path = os.path.join(proc_root, entry, "comm")
+        try:
+            with open(comm_path, "r", encoding="utf-8", errors="ignore") as f:
+                comm = f.read().strip().lower()
+        except (OSError, IOError):
+            continue
+        # /proc/<pid>/comm truncates to 15 chars on some kernels, so we
+        # match a prefix of the target rather than equality.
+        if comm and (comm == target or target.startswith(comm)):
+            return True
+    return False
 
 
 # Helper for the case where helldivers2.exe is missing from the
@@ -615,7 +665,7 @@ def move_files_to_helldivers():
         return []
 
     # Detect AV-deleted required files BEFORE moving anything.
-    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll"]
+    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll", "msvcp140_real.dll"]
     missing_from_both = [
         name for name in required
         if not os.path.isfile(os.path.join(source_dir, name))
@@ -671,7 +721,7 @@ def move_files_to_helldivers():
 
 # Ensures required files exist in the local 'data' folder, retrieving any missing ones from the Helldivers 2 bin folder.
 def ensure_required_files_in_data():
-    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll"]
+    required = ["discord_game_sdk.dll", "mounts.json", "msvcp140.dll", "msvcp140_real.dll"]
     data_dir = os.path.join(os.getcwd(), 'data')
     os.makedirs(data_dir, exist_ok=True)
 
@@ -782,6 +832,19 @@ def move_files_back_to_data(files_to_retrieve):
 # files that were already moved into the game's bin folder are restored.
 def launch_and_restore():
     print("Starting CGW")
+
+    # Block before touching anything: if HD2 is already open, modifying its
+    # bin folder would either fail outright (file locks) or silently corrupt
+    # the live mod state. Surface this as an error so the launcher resets.
+    if is_helldivers_running():
+        show_error_box(
+            "Helldivers 2 Already Running",
+            "Helldivers 2 is already open.\n\n"
+            "Please close the game completely before clicking CONNECT, "
+            "otherwise the launcher cannot inject its files safely.\n\n"
+            "The launcher will not modify any files on this attempt."
+        )
+        return
 
     errors_before_inject = error_count_since_reset()
 

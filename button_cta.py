@@ -83,11 +83,12 @@ class InteractiveCTA(QWidget):
         self.hover_sound = QSoundEffect(self)
         if os.path.exists(constants.SFX_HOVER):
             self.hover_sound.setSource(QUrl.fromLocalFile(constants.SFX_HOVER))
-            self.hover_sound.setVolume(0.5) 
-            
+            self.hover_sound.setVolume(0.25)
+
         self.click_sound = QSoundEffect(self)
         if click_sound_path and os.path.exists(click_sound_path):
             self.click_sound.setSource(QUrl.fromLocalFile(click_sound_path))
+            self.click_sound.setVolume(0.4)
 
         self.prefs = {
             "width": width, "height": height, "label": label,

@@ -285,7 +285,10 @@ class CustomGalacticWarLauncher(QMainWindow):
 
     def launch_finished(self, success):
         if success:
-            QTimer.singleShot(2500, self.close)
+            # Keep the "FIGHT FOR MANAGED DEMOCRACY!" message visible briefly,
+            # then return the launcher to its starting state so the user can
+            # connect again without re-opening it.
+            QTimer.singleShot(2500, self.reset_launcher_ui)
         else:
             # An error message box was shown during the launch attempt.
             # Reset the launcher to its original state instead of closing.

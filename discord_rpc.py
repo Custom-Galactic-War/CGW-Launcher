@@ -31,7 +31,15 @@ class DiscordRPCManager(QThread):
     def stop(self):
         self.is_running = False
         if self.rpc:
+            # clear() removes the activity from Discord's UI; close() alone
+            # only tears down the IPC pipe and Discord will keep showing the
+            # last-pushed presence until something explicitly clears it.
+            try:
+                self.rpc.clear()
+            except Exception:
+                pass
             try:
                 self.rpc.close()
             except Exception:
                 pass
+            self.rpc = None

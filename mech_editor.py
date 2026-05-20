@@ -161,6 +161,7 @@ class HardpointItem(QGraphicsPixmapItem):
         self.cycle_sound = QSoundEffect()
         if os.path.exists(constants.SFX_CYCLE):
             self.cycle_sound.setSource(QUrl.fromLocalFile(constants.SFX_CYCLE))
+            self.cycle_sound.setVolume(0.4)
 
         self.current_index = self.weapon_list.index(default_weapon_name) if default_weapon_name in self.weapon_list else 0
         self.current_weapon = self.weapon_list[self.current_index] if self.weapon_list else ""
@@ -225,6 +226,7 @@ class ChassisItem(QGraphicsPixmapItem):
         self.cycle_sound = QSoundEffect()
         if os.path.exists(constants.SFX_CYCLE):
             self.cycle_sound.setSource(QUrl.fromLocalFile(constants.SFX_CYCLE))
+            self.cycle_sound.setVolume(0.4)
 
         self.setAcceptHoverEvents(True)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
