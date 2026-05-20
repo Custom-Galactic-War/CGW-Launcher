@@ -30,3 +30,7 @@ missing module named 'multiprocessing.queues' - imported by concurrent.futures.p
 missing module named 'multiprocessing.connection' - imported by concurrent.futures.process (top-level)
 excluded module named multiprocessing - imported by concurrent.futures.process (top-level)
 missing module named asyncio.DefaultEventLoopPolicy - imported by asyncio (delayed, conditional), asyncio.events (delayed, conditional)
+missing module named vms_lib - imported by platform (delayed, optional)
+missing module named 'java.lang' - imported by platform (delayed, optional)
+missing module named java - imported by platform (delayed)
+missing module named _winreg - imported by platform (delayed, optional)

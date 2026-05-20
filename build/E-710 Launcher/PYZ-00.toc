@@ -1,5 +1,5 @@
 ('C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
- 'Stuff\\E-711-Launcher\\build\\E-710 Launcher\\PYZ-00.pyz',
+ 'Stuff\\CGW\\CGW-Launcher\\build\\E-710 Launcher\\PYZ-00.pyz',
  [('PyQt6',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\PyQt6\\__init__.py',
    'PYMODULE'),
@@ -140,7 +140,7 @@
    'PYMODULE'),
   ('button_cta',
    'C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
-   'Stuff\\E-711-Launcher\\button_cta.py',
+   'Stuff\\CGW\\CGW-Launcher\\button_cta.py',
    'PYMODULE'),
   ('bz2',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\bz2.py',
@@ -165,7 +165,7 @@
    'PYMODULE'),
   ('constants',
    'C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
-   'Stuff\\E-711-Launcher\\constants.py',
+   'Stuff\\CGW\\CGW-Launcher\\constants.py',
    'PYMODULE'),
   ('contextlib',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\contextlib.py',
@@ -181,7 +181,7 @@
    'PYMODULE'),
   ('custom_widgets',
    'C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
-   'Stuff\\E-711-Launcher\\custom_widgets.py',
+   'Stuff\\CGW\\CGW-Launcher\\custom_widgets.py',
    'PYMODULE'),
   ('dataclasses',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\dataclasses.py',
@@ -197,7 +197,7 @@
    'PYMODULE'),
   ('discord_rpc',
    'C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
-   'Stuff\\E-711-Launcher\\discord_rpc.py',
+   'Stuff\\CGW\\CGW-Launcher\\discord_rpc.py',
    'PYMODULE'),
   ('email',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\email\\__init__.py',
@@ -267,7 +267,7 @@
    'PYMODULE'),
   ('functions',
    'C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
-   'Stuff\\E-711-Launcher\\functions.py',
+   'Stuff\\CGW\\CGW-Launcher\\functions.py',
    'PYMODULE'),
   ('getopt',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\getopt.py',
@@ -382,7 +382,7 @@
    'PYMODULE'),
   ('mech_editor',
    'C:\\Users\\edwar\\OneDrive\\Desktop\\Havoc Hub '
-   'Stuff\\E-711-Launcher\\mech_editor.py',
+   'Stuff\\CGW\\CGW-Launcher\\mech_editor.py',
    'PYMODULE'),
   ('numbers',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\numbers.py',
@@ -398,6 +398,9 @@
    'PYMODULE'),
   ('pkgutil',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\pkgutil.py',
+   'PYMODULE'),
+  ('platform',
+   'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\platform.py',
    'PYMODULE'),
   ('pprint',
    'C:\\Users\\edwar\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\pprint.py',
