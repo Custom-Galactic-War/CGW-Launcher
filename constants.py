@@ -2,14 +2,31 @@ import os
 import sys
 from PyQt6.QtGui import QFontDatabase
 
-# File paths
-ASSET_DIR = os.path.join("data", "assets")
-MECH_ASSET_DIR = os.path.join(ASSET_DIR, "exosuit")
-DATA_DIR = os.path.join("data")
+# Everything the launcher reads or writes lives next to the launcher itself.
+# Users place the launcher and its 'files' folder directly inside their
+# 'Helldivers 2' folder, so BASE_DIR is that folder and the game's 'bin'
+# subfolder sits right beside us.
+def _compute_base_dir():
+    if getattr(sys, "frozen", False):
+        # PyInstaller build: the directory containing the launcher executable.
+        return os.path.dirname(os.path.abspath(sys.executable))
+    # Running from source: the directory containing this file.
+    return os.path.dirname(os.path.abspath(__file__))
 
-# Shit used by the exosuit editor
-MOUNTS_JSON = os.path.join(DATA_DIR, "mounts.json")
-WEAPONS_JSON = os.path.join(DATA_DIR, "exosuit_weapons.json")
+
+BASE_DIR = _compute_base_dir()
+FILES_DIR = os.path.join(BASE_DIR, "files")  # ships alongside the launcher
+BIN_DIR = os.path.join(BASE_DIR, "bin")      # the Helldivers 2 'bin' folder
+
+# File paths
+ASSET_DIR = os.path.join(FILES_DIR, "assets")
+MECH_ASSET_DIR = os.path.join(ASSET_DIR, "exosuit")
+
+# Used by the exosuit editor. MOUNTS_JSON is the copy in the 'files' folder;
+# the editor targets the copy inside 'bin' instead when one exists there
+# (see functions.get_active_mounts_json_path).
+MOUNTS_JSON = os.path.join(FILES_DIR, "mounts.json")
+WEAPONS_JSON = os.path.join(FILES_DIR, "exosuit_weapons.json")
 
 # Background & CGW Logo
 BG_PATH = os.path.join(ASSET_DIR, "bg.png")
@@ -17,9 +34,9 @@ LOGO_PATH = os.path.join(ASSET_DIR, "cgw.png")
 
 # Audio files
 SFX_DIR = os.path.join(ASSET_DIR, "sfx")
-SFX_HOVER = os.path.abspath(os.path.join(SFX_DIR, "Exosuit_inspect.wav"))
-SFX_CYCLE = os.path.abspath(os.path.join(SFX_DIR, "Exo_cycle.wav"))
-SFX_SAVE = os.path.abspath(os.path.join(SFX_DIR, "Exo_Save.wav"))
+SFX_HOVER = os.path.join(SFX_DIR, "Exosuit_inspect.wav")
+SFX_CYCLE = os.path.join(SFX_DIR, "Exo_cycle.wav")
+SFX_SAVE = os.path.join(SFX_DIR, "Exo_Save.wav")
 
 # Colors!!!
 COLOR_PRIMARY = "#5ce372"

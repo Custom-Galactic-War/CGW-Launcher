@@ -103,7 +103,7 @@ def load_all_loadouts():
     """Return a dict[chassis -> {"left": str, "right": str}] for all 4 chassis.
     Existing entries in mounts.json are preserved (with case normalization);
     missing chassis are filled from CANONICAL_DEFAULTS."""
-    raw = read_json_safely(constants.MOUNTS_JSON, {})
+    raw = read_json_safely(functions.get_active_mounts_json_path(), {})
 
     loadouts = {}
     for raw_key, paths in raw.items():
@@ -128,8 +128,12 @@ def save_all_loadouts(loadouts):
     """Write the full 4-chassis loadout back to mounts.json. Top-level keys in
     the existing file that AREN'T one of our 4 chassis are preserved untouched
     (defensive — in case the mod adds future entries). Case-variant keys of
-    canonical chassis are dropped so we don't leave orphans behind."""
-    existing = read_json_safely(constants.MOUNTS_JSON, {})
+    canonical chassis are dropped so we don't leave orphans behind.
+
+    Targets the bin-folder mounts.json when one exists there, otherwise the
+    copy in the 'files' folder (see functions.get_active_mounts_json_path)."""
+    mounts_path = functions.get_active_mounts_json_path()
+    existing = read_json_safely(mounts_path, {})
 
     out = {}
     for raw_key, val in existing.items():
@@ -146,7 +150,7 @@ def save_all_loadouts(loadouts):
             {"path": pair["right"]},
         ]
 
-    with open(constants.MOUNTS_JSON, 'w') as f:
+    with open(mounts_path, 'w') as f:
         json.dump(out, f, indent=4)
 
 

@@ -1,0 +1,34 @@
+{
+    "EXO-45 Patriot Exosuit": [
+        {
+            "path": "EXO-45 Patriot Exosuit Missile Launcher"
+        },
+        {
+            "path": "EXO-45 Patriot Exosuit Gatling Gun"
+        }
+    ],
+    "EXO-49 Emancipator Exosuit": [
+        {
+            "path": "EXO-49 Emancipator Exosuit Autocannon Left"
+        },
+        {
+            "path": "EXO-49 Emancipator Exosuit Autocannon Right"
+        }
+    ],
+    "EXO-51 Lumberer Exosuit": [
+        {
+            "path": "EXO-51 Lumberer Flamethrower"
+        },
+        {
+            "path": "EXO-51 Lumberer Anti-Tank Cannon"
+        }
+    ],
+    "EXO-55 Breakthrough Exosuit": [
+        {
+            "path": "EXO-55 Breakthrough Shield"
+        },
+        {
+            "path": "EXO-55 Breakthrough Flak Cannon"
+        }
+    ]
+}
