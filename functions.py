@@ -519,8 +519,11 @@ def move_files_back_to_files(files_to_retrieve):
             "The following file(s) could not be moved back from the "
             "Helldivers 2 'bin' folder to the launcher's 'files' folder:\n\n"
             f"{details}\n\n"
-            "This is usually caused by anti-virus interference. Try adding "
-            "both folders to your anti-virus exclusions list."
+            "This is usually caused by anti-virus interference or insufficient permissions. Try adding "
+            "both folders to your anti-virus exclusions list. This will not effect "
+            "this run of CGW, but if the files are not moved back when you close the launcher "
+            "then the next time you try to play vanilla GW you will play CGW instead. To fix this "
+            "just reopen then close the launcher, or manually remove the msvcp140.dll from the bin folder."
         )
 
     print(f"Successfully retrieved {moved_count}/{len(files_to_retrieve)} files.")
