@@ -4,6 +4,7 @@ import re
 import shutil
 import string
 import subprocess
+import threading
 import time
 import json
 import tkinter as tk
@@ -15,6 +16,12 @@ except ImportError:
     winreg = None
 
 import constants
+
+# The thread the interpreter started on. tkinter (and any GUI toolkit) may only
+# be touched from this thread; doing so from a worker thread causes a hard
+# native crash ("Tcl_AsyncDelete: async handler deleted by the wrong thread"),
+# which is exactly what silently closed the launcher for some users.
+_MAIN_THREAD = threading.main_thread()
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -70,28 +77,60 @@ def parse_lobby_url(text):
     return canonical, tail
 
 
-# Module-level counter for error message boxes shown since the last reset.
-# The launcher UI uses this to detect whether the most recent launch attempt
-# triggered any errors so it can reset itself instead of closing.
+# Error machinery. Errors can be raised from either the GUI/main thread
+# (startup, close) or the InjectionThread worker (during launch). To stay
+# crash-free:
+#   * The error COUNT (used by the UI to decide success/failure) is always
+#     updated synchronously under a lock.
+#   * The actual DIALOG is only ever shown on the main thread. Main-thread
+#     errors display immediately; worker-thread errors are queued and the main
+#     thread drains them via drain_pending_errors() once the worker finishes.
+_error_lock = threading.RLock()
 _error_count = 0
+_pending_errors = []          # (title, message) queued from worker threads
+_main_thread_display = None   # callable(title, message); set by the GUI layer
+
+
+def set_main_thread_display(fn):
+    """Register a callback the main thread uses to show an error dialog. The
+    callback MUST only be invoked on the main thread (this module guarantees
+    that). Passing None reverts to the tkinter fallback."""
+    global _main_thread_display
+    _main_thread_display = fn
 
 
 def reset_error_count():
     global _error_count
-    _error_count = 0
+    with _error_lock:
+        _error_count = 0
+        _pending_errors.clear()
 
 
 def error_count_since_reset():
-    return _error_count
+    with _error_lock:
+        return _error_count
 
 
-# Show a modal error dialog. Falls back to console output if Tk is unavailable.
-# Every call increments the error counter so the launcher knows an error was
-# surfaced to the user during the current operation.
-def show_error_box(title, message):
-    global _error_count
-    _error_count += 1
-    print(f"[{title}] {message}")
+def drain_pending_errors():
+    """Return and clear the list of errors queued from worker threads. Call
+    this from the main thread (e.g. when the injection thread finishes) to
+    display them safely."""
+    with _error_lock:
+        errors = list(_pending_errors)
+        _pending_errors.clear()
+    return errors
+
+
+def _display_on_main_thread(title, message):
+    """Actually show the dialog. MUST be called on the main thread only."""
+    if _main_thread_display is not None:
+        try:
+            _main_thread_display(title, message)
+            return
+        except Exception as e:
+            print(f"(GUI error display failed, falling back to tkinter: {e})")
+    # Fallback for headless/standalone use (no GUI layer registered). tkinter
+    # is only safe here because this function is main-thread-only.
     try:
         root = tk.Tk()
         root.withdraw()
@@ -100,6 +139,23 @@ def show_error_box(title, message):
         root.destroy()
     except Exception as e:
         print(f"(Could not display message box: {e})")
+
+
+# Record an error and surface it to the user. Every call increments the error
+# counter so the launcher knows an error occurred. The dialog is shown
+# immediately when called on the main thread, or queued for the main thread to
+# display when called from a worker thread (NEVER touches tkinter off-thread).
+def show_error_box(title, message):
+    global _error_count
+    print(f"[{title}] {message}")
+    with _error_lock:
+        _error_count += 1
+        on_main = threading.current_thread() is _MAIN_THREAD
+        if not on_main:
+            # Defer to the main thread — touching the GUI here would crash.
+            _pending_errors.append((title, message))
+    if on_main:
+        _display_on_main_thread(title, message)
 
 
 # Standardized warning for the "files missing from BOTH locations" scenario.
@@ -129,6 +185,20 @@ _LINUX_STEAM_INSTALL_CANDIDATES = (
     "~/.steam/root",
     "~/.steam/debian-installation",
     "~/.var/app/com.valvesoftware.Steam/.local/share/Steam",
+    "~/snap/steam/common/.local/share/Steam",  # Snap install
+)
+
+
+# Candidate paths to the Steam launcher binary on Linux, checked in order when
+# `steam` isn't found on PATH. Covers apt/dnf/pacman, Snap (/snap/bin/steam),
+# user-local installs, and the legacy ~/.steam/steam.sh launcher.
+_LINUX_STEAM_BINARIES = (
+    "/usr/bin/steam",
+    "/usr/games/steam",
+    "/usr/local/bin/steam",
+    "/snap/bin/steam",
+    os.path.expanduser("~/.local/bin/steam"),
+    os.path.expanduser("~/.steam/steam.sh"),
 )
 
 
@@ -184,19 +254,13 @@ def find_steam_launch_argv():
         path = find_steam_exe()
         return [path] if path else None
 
-    # Native Linux Steam — prefer whatever's on PATH.
+    # Native Linux Steam — prefer whatever's on PATH (covers apt/dnf/pacman and
+    # Snap, since /snap/bin is normally on PATH).
     found = shutil.which("steam")
     if found:
         return [found]
 
-    native_paths = [
-        "/usr/bin/steam",
-        "/usr/games/steam",
-        "/usr/local/bin/steam",
-        os.path.expanduser("~/.local/bin/steam"),
-        os.path.expanduser("~/.steam/steam.sh"),
-    ]
-    for p in native_paths:
+    for p in _LINUX_STEAM_BINARIES:
         if os.path.isfile(p) and os.access(p, os.X_OK):
             return [p]
 
@@ -253,13 +317,7 @@ def find_steam_exe():
     found = shutil.which("steam")
     if found:
         return found
-    for path in (
-        "/usr/bin/steam",
-        "/usr/games/steam",
-        "/usr/local/bin/steam",
-        os.path.expanduser("~/.local/bin/steam"),
-        os.path.expanduser("~/.steam/steam.sh"),
-    ):
+    for path in _LINUX_STEAM_BINARIES:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             return path
     return None
@@ -355,10 +413,13 @@ def is_helldivers_running():
             return False
         return target in result.stdout.lower()
 
-    # Linux: scan /proc for any process whose executable basename matches.
-    # On Linux/Proton the game runs as helldivers2.exe inside Wine, so the
-    # /proc/<pid>/comm value is "helldivers2.exe" (truncated to 15 chars on
-    # older kernels — still matches our substring check).
+    # Linux: scan /proc for any process matching helldivers2.exe. Under Proton
+    # the game runs inside Wine, so we check two things per process:
+    #   * /proc/<pid>/comm    — the process name, but truncated to 15 chars
+    #     ("helldivers2.exe" is exactly 15, so it fits; older kernels may clip).
+    #   * /proc/<pid>/cmdline — the full argv (NUL-separated). Wine/Proton
+    #     launches the game by full path, so "helldivers2.exe" appears here even
+    #     when comm is something generic. This is the reliable signal.
     proc_root = "/proc"
     if not os.path.isdir(proc_root):
         return False
@@ -369,17 +430,53 @@ def is_helldivers_running():
     for entry in entries:
         if not entry.isdigit():
             continue
-        comm_path = os.path.join(proc_root, entry, "comm")
+        proc_dir = os.path.join(proc_root, entry)
+
+        # comm — fast path, prefix match to tolerate 15-char truncation.
         try:
-            with open(comm_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(os.path.join(proc_dir, "comm"), "r",
+                      encoding="utf-8", errors="ignore") as f:
                 comm = f.read().strip().lower()
+            if comm and (comm == target or target.startswith(comm)):
+                return True
         except (OSError, IOError):
-            continue
-        # /proc/<pid>/comm truncates to 15 chars on some kernels, so we
-        # match a prefix of the target rather than equality.
-        if comm and (comm == target or target.startswith(comm)):
-            return True
+            pass
+
+        # cmdline — full argv; catches the Proton ".../helldivers2.exe" case.
+        try:
+            with open(os.path.join(proc_dir, "cmdline"), "rb") as f:
+                cmdline = f.read().replace(b"\x00", b" ").decode(
+                    "utf-8", "ignore").lower()
+            if target in cmdline:
+                return True
+        except (OSError, IOError):
+            pass
     return False
+
+
+# How long (seconds) to wait for the helldivers2.exe process to appear after
+# asking Steam to launch it. Generous enough to cover Steam cold-start, a small
+# pending update, and anti-cheat/shader init. If the process never appears
+# within this window the launch is treated as failed.
+GAME_LAUNCH_TIMEOUT_SECONDS = 120
+
+# Grace period (seconds) after the game process appears before moving the
+# injected files back out of 'bin'. The DLLs are loaded at process start, so a
+# short wait is enough to also cover any remaining file reads during init.
+POST_LAUNCH_GRACE_SECONDS = 20
+
+
+# Polls until a helldivers2.exe process is detected or the timeout elapses.
+# Returns True if the game started, False if it never appeared in time.
+def wait_for_helldivers_to_start(timeout_seconds=GAME_LAUNCH_TIMEOUT_SECONDS,
+                                 poll_interval=2.0):
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if is_helldivers_running():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_interval)
 
 
 # Returns the mounts.json the mech editor should read and write. If the bin
@@ -671,10 +768,31 @@ def launch_game():
         move_files_back_to_files(moved_files)
         return
 
-    # 6. Give the game time to start up and load the injected files, then move
-    #    them back out so the 'bin' folder is left clean.
-    print("Waiting 45 seconds for game initialization...")
-    time.sleep(45)
+    # 6. Confirm the game actually started. Popen succeeding only means Steam
+    #    was spawned — NOT that the game launched (Steam could be logged out,
+    #    offline, mid-update, or the game not owned). Poll for the process so a
+    #    silent non-launch becomes a clear error instead of a no-op.
+    print("Waiting for Helldivers 2 to start...")
+    if not wait_for_helldivers_to_start():
+        show_error_box(
+            "Helldivers 2 Did Not Start",
+            "The launcher asked Steam to start Helldivers 2, but the game did "
+            f"not start within {GAME_LAUNCH_TIMEOUT_SECONDS} seconds.\n\n"
+            "Common causes:\n"
+            "  - Steam is logged out, offline, or downloading an update.\n"
+            "  - Helldivers 2 is not owned on the signed-in Steam account.\n"
+            "  - A Steam pop-up is waiting for your input.\n\n"
+            "Your launcher files have been restored. Make sure Steam is "
+            "running and signed in, then click CONNECT again."
+        )
+        move_files_back_to_files(moved_files)
+        return
+
+    # 7. The process exists, so its injected DLLs are already loaded. Give the
+    #    game a short grace period to finish reading any remaining injected
+    #    files, then move them back out so 'bin' is left clean.
+    print(f"Helldivers 2 started. Restoring files in {POST_LAUNCH_GRACE_SECONDS}s...")
+    time.sleep(POST_LAUNCH_GRACE_SECONDS)
 
     move_files_back_to_files(moved_files)
     print("Successfully launched game and moved files back.")

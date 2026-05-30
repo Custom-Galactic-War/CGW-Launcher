@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import traceback
 
 from PyQt6 import QtGui
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QMessageBox, QInputDialog
@@ -21,10 +22,27 @@ class InjectionThread(QThread):
     def run(self):
         functions.reset_error_count()
 
-        self.progress_update.emit(10.0, "INITIALIZING...")
-        time.sleep(1.0)
-        self.progress_update.emit(50.0, "LAUNCHING HELLPODS... DO NOT CLOSE THIS WINDOW!")
-        functions.launch_game()
+        try:
+            self.progress_update.emit(10.0, "INITIALIZING...")
+            time.sleep(1.0)
+            self.progress_update.emit(50.0, "LAUNCHING HELLPODS... DO NOT CLOSE THIS WINDOW!")
+            functions.launch_game()
+        except Exception as e:
+            # Catch ANY unexpected error so the worker thread never dies with an
+            # unhandled exception (which would take the whole app down). The
+            # error is recorded + queued; the main thread displays it after the
+            # thread finishes, and the launcher resets instead of closing.
+            details = traceback.format_exc()
+            print(details)
+            functions.show_error_box(
+                "Unexpected Launcher Error",
+                "Something went wrong while launching the game:\n\n"
+                f"{e}\n\n"
+                "The launcher has stopped this attempt instead of closing. If "
+                "this keeps happening, please report it with the details "
+                "below:\n\n"
+                f"{details}"
+            )
 
         success = functions.error_count_since_reset() == 0
         if success:
@@ -42,6 +60,11 @@ class CustomGalacticWarLauncher(QMainWindow):
         # Eats the title bar
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setStyleSheet(f"QMainWindow {{ border: 2px solid {constants.COLOR_PRIMARY}; background-color: {constants.COLOR_BG_DARKER}; }}")
+
+        # Route all of functions.show_error_box's dialogs through Qt on the main
+        # thread. This replaces the old tkinter dialogs, which crashed the app
+        # when triggered from the InjectionThread worker.
+        functions.set_main_thread_display(self._show_error_dialog)
 
         # Pull any files a previous session stranded in 'bin' back into the
         # 'files' folder before the UI (and the mech editor) load.
@@ -273,7 +296,21 @@ class CustomGalacticWarLauncher(QMainWindow):
         self.injection_thread.sequence_complete.connect(self.launch_finished)
         self.injection_thread.start()
 
+    def _show_error_dialog(self, title, message):
+        """Show an error dialog on the GUI/main thread. Registered with
+        functions.set_main_thread_display so worker-thread errors are surfaced
+        safely instead of crashing via off-thread tkinter."""
+        try:
+            QMessageBox.critical(self, title, message)
+        except Exception as e:
+            print(f"(Failed to show error dialog: {e})")
+
     def launch_finished(self, success):
+        # Display any errors the worker thread queued (it can't touch the GUI
+        # itself). This is what turns a silent crash into a visible message box.
+        for title, message in functions.drain_pending_errors():
+            self._show_error_dialog(title, message)
+
         if success:
             # Keep the "FIGHT FOR MANAGED DEMOCRACY!" message visible briefly,
             # then return the launcher to its starting state so the user can
@@ -291,11 +328,15 @@ class CustomGalacticWarLauncher(QMainWindow):
 
     def closeEvent(self, event):
         # Wait for the injection thread to finish so the files it moved into
-        # 'bin' get pulled back into the 'files' folder. The 55s ceiling
-        # covers the 45s game-init wait plus a buffer. Closing mid-injection
+        # 'bin' get pulled back into the 'files' folder. The ceiling covers the
+        # worst case: the full game-launch timeout plus the post-launch grace
+        # period plus a buffer. wait() returns as soon as the thread actually
+        # finishes, so the common case is much shorter. Closing mid-injection
         # is a safety net, not a graceful cancel.
         if hasattr(self, 'injection_thread') and self.injection_thread.isRunning():
-            self.injection_thread.wait(55000)
+            ceiling_ms = (functions.GAME_LAUNCH_TIMEOUT_SECONDS
+                          + functions.POST_LAUNCH_GRACE_SECONDS + 15) * 1000
+            self.injection_thread.wait(ceiling_ms)
 
         if hasattr(self, 'rpc_manager'):
             self.rpc_manager.stop()
@@ -304,11 +345,42 @@ class CustomGalacticWarLauncher(QMainWindow):
         functions.ensure_required_files_in_files()
         super().closeEvent(event)
 
+def _install_global_excepthook():
+    """Last-resort safety net: show any uncaught exception in a message box
+    instead of letting the app close silently. Without this, an unhandled
+    exception on the main thread prints to a (nonexistent, in --windowed
+    builds) console and the window just disappears."""
+    def handle(exc_type, exc_value, exc_tb):
+        details = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        print(details)
+        try:
+            QMessageBox.critical(
+                None,
+                "Unexpected Error",
+                "The launcher hit an unexpected error:\n\n"
+                f"{exc_value}\n\n"
+                "Details (please report this):\n\n"
+                f"{details}"
+            )
+        except Exception as e:
+            print(f"(Could not display crash dialog: {e})")
+
+    sys.excepthook = handle
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    # Install the crash dialog only after the QApplication exists (QMessageBox
+    # needs it).
+    _install_global_excepthook()
     app_icon = QtGui.QIcon()
     app_icon.addFile(os.path.join(constants.ASSET_DIR, "icon.png"), QSize(256, 256))
     app.setWindowIcon(app_icon)
-    window = CustomGalacticWarLauncher()
-    window.show()
+    try:
+        window = CustomGalacticWarLauncher()
+        window.show()
+    except Exception:
+        # Surface construction-time failures through the same dialog path.
+        sys.excepthook(*sys.exc_info())
+        sys.exit(1)
     sys.exit(app.exec())
