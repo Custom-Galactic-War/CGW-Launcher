@@ -280,6 +280,12 @@ class CustomGalacticWarLauncher(QMainWindow):
             self.lobby_label.hide()
 
     def initiate_launch(self):
+        # Commit (and validate) the mech loadout first. If it's invalid (e.g.
+        # the Breakthrough Shield is on the right arm only), the editor shows
+        # an error and we abort the launch without touching anything else.
+        if not self.editor_panel.commit_loadout():
+            return
+
         # Any currently-shared lobby URL is about to become stale (relaunching
         # the game tears down the existing lobby). Clear it so the Discord
         # presence doesn't keep advertising a lobby that no longer exists.
@@ -289,7 +295,6 @@ class CustomGalacticWarLauncher(QMainWindow):
             self._refresh_lobby_ui()
 
         self.btn_play.hide()
-        self.editor_panel.commit_loadout()
 
         self.injection_thread = InjectionThread()
         self.injection_thread.progress_update.connect(self.progress_bar.update_progress)

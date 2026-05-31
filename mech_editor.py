@@ -1,7 +1,8 @@
 import os
 import json
 from PyQt6.QtWidgets import (
-    QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QWidget
+    QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QWidget,
+    QMessageBox,
 )
 from PyQt6.QtGui import QPixmap, QCursor, QPainter
 from PyQt6.QtCore import Qt, QUrl
@@ -41,8 +42,11 @@ LUMBERER_WEAPONS = [
     "EXO-51 Lumberer Flamethrower",
     "EXO-51 Lumberer Anti-Tank Cannon",
 ]
+# The Breakthrough Shield is only valid on the right arm when it's also on the
+# left arm (see commit_loadout's validation).
+BREAKTHROUGH_SHIELD = "EXO-55 Breakthrough Shield"
 BREAKTHROUGH_WEAPONS = [
-    "EXO-55 Breakthrough Shield",
+    BREAKTHROUGH_SHIELD,
     "EXO-55 Breakthrough Flak Cannon",
 ]
 
@@ -373,10 +377,43 @@ class MechEditorWidget(QWidget):
 
         self.refresh_schematic()
 
+    def _shield_violations(self):
+        """Return the chassis where the Breakthrough Shield is on the right arm
+        but NOT also on the left arm — an invalid configuration."""
+        bad = []
+        for chassis, pair in self.loadouts.items():
+            if (pair.get("right") == BREAKTHROUGH_SHIELD
+                    and pair.get("left") != BREAKTHROUGH_SHIELD):
+                bad.append(chassis)
+        return bad
+
     def commit_loadout(self):
+        """Capture, validate, and save the loadout. Returns True if it was
+        saved, False if validation failed or the save errored (so callers like
+        the CONNECT button can abort)."""
+        self._capture_current()
+
+        # The Breakthrough Shield can't be on the right arm alone — it must
+        # also be on the left arm. Block the save (and any launch) if so.
+        violations = self._shield_violations()
+        if violations:
+            chassis_list = "\n  - ".join(violations)
+            QMessageBox.warning(
+                self,
+                "Invalid Exosuit Loadout",
+                f"The {BREAKTHROUGH_SHIELD} can only be placed on the RIGHT "
+                "arm if it is ALSO on the LEFT arm.\n\n"
+                "Please fix the following exosuit(s):\n"
+                f"  - {chassis_list}\n\n"
+                "Either put the Shield on the left arm too, or choose a "
+                "different weapon for the right arm.",
+            )
+            return False
+
         try:
-            self._capture_current()
             save_all_loadouts(self.loadouts)
             print("Exosuit Edit Successful")
+            return True
         except Exception as e:
             print(f"Exosuit Edit Failed: {e}")
+            return False
