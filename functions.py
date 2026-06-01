@@ -386,6 +386,78 @@ LAUNCHER_ONLY_FILENAMES = frozenset({
 })
 
 
+# Enumerate running process executable names on Windows via the Win32 Toolhelp
+# API (CreateToolhelp32Snapshot). Returns a set of lowercase names, or None if
+# the API call fails. This is used in preference to `tasklist` because a
+# --windowed (no-console) PyInstaller build can get None back from tasklist's
+# captured stdout, which previously crashed the launch with
+# "'NoneType' object has no attribute 'lower'".
+def _list_windows_process_names():
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return None
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    MAX_PATH = 260
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    class PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_char * MAX_PATH),
+        ]
+
+    try:
+        k = ctypes.windll.kernel32
+        # Pin the prototypes so handles aren't truncated to 32 bits on x64.
+        k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        k.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        k.Process32First.restype = wintypes.BOOL
+        k.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+        k.Process32Next.restype = wintypes.BOOL
+        k.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+        k.CloseHandle.restype = wintypes.BOOL
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        snapshot = k.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if not snapshot or snapshot == INVALID_HANDLE_VALUE:
+            return None
+    except Exception:
+        return None
+
+    names = set()
+    try:
+        entry = PROCESSENTRY32()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+        if not k.Process32First(snapshot, ctypes.byref(entry)):
+            return names
+        while True:
+            try:
+                names.add(entry.szExeFile.decode("ascii", "ignore").lower())
+            except Exception:
+                pass
+            if not k.Process32Next(snapshot, ctypes.byref(entry)):
+                break
+    except Exception:
+        return None
+    finally:
+        try:
+            k.CloseHandle(snapshot)
+        except Exception:
+            pass
+    return names
+
+
 # Returns True if a helldivers2.exe process is currently running. Used to
 # block CONNECT clicks while the game is already open — moving files into the
 # bin folder while the game has them mapped is a recipe for corrupted state.
@@ -395,6 +467,15 @@ def is_helldivers_running():
     target = HELLDIVERS_EXE_FILENAME.lower()
 
     if _IS_WINDOWS:
+        # Primary: enumerate processes directly via the Win32 API — reliable
+        # even in a frozen --windowed build.
+        names = _list_windows_process_names()
+        if names is not None:
+            return target in names
+
+        # Fallback: tasklist. Guard stdout because in some windowed/frozen
+        # environments the captured stdout comes back as None (the original
+        # cause of the crash).
         try:
             # CREATE_NO_WINDOW (0x08000000) hides the conhost flash that
             # tasklist would otherwise produce when called from a GUI app.
@@ -411,7 +492,8 @@ def is_helldivers_running():
             )
         except (OSError, subprocess.SubprocessError):
             return False
-        return target in result.stdout.lower()
+        output = (result.stdout or "") + (result.stderr or "")
+        return target in output.lower()
 
     # Linux: scan /proc for any process matching helldivers2.exe. Under Proton
     # the game runs inside Wine, so we check two things per process:
